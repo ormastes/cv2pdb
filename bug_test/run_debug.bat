@@ -1,0 +1,3 @@
+@echo off
+echo Running program in CDB debugger...
+"C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe" -g test_bitfield_pdb.exe

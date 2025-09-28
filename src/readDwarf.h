@@ -253,6 +253,14 @@ struct DWARF_InfoData
 	bool is_artificial;
 	bool has_artificial;
 
+	// Bitfield support
+	unsigned int bit_size = 0;
+	unsigned int bit_offset = 0;
+	unsigned int data_bit_offset = 0;
+
+	// Array count attribute (DW_AT_count)
+	long count = 0;
+
 	void clear()
 	{
 		entryPtr = 0;
@@ -290,6 +298,10 @@ struct DWARF_InfoData
 		has_const_value = false;
 		is_artificial = false;
 		has_artificial = false;
+		bit_size = 0;
+		bit_offset = 0;
+		data_bit_offset = 0;
+		count = 0;
 	}
 
 	void merge(const DWARF_InfoData& id)
@@ -317,6 +329,8 @@ struct DWARF_InfoData
 		if (!has_lower_bound) { lower_bound = id.lower_bound; has_lower_bound = id.has_lower_bound; }
 		if (!has_const_value) { const_value = id.const_value; has_const_value = id.has_const_value; }
 		if (!has_artificial) { is_artificial = id.is_artificial; has_artificial = id.has_artificial; }
+		if (bit_size == 0) { bit_size = id.bit_size; bit_offset = id.bit_offset; data_bit_offset = id.data_bit_offset; }
+		if (count == 0) { count = id.count; }
 	}
 };
 

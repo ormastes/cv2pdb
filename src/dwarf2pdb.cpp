@@ -1064,20 +1064,45 @@ int CV2PDB::addDWARFFields(DWARF_InfoData& structid, DIECursor& cursor, int base
 				}
 			}
 
+			// Process all members (including bitfields)
 			if (isunion || cvid == S_CONSTANT_V2)
 			{
 				if (id.name)
 				{
 					checkDWARFTypeAlloc(kMaxNameLen + 100);
 					codeview_fieldtype* dfieldtype = (codeview_fieldtype*)(dwarfTypes + cbDwarfTypes);
-					const DWARF_InfoData* entry = findEntryByPtr(id.type);
-					if (entry && entry->tag == DW_TAG_pointer_type)
+					
+					int field_offset = baseoff + off;
+					int type_to_use = getTypeByDWARFPtr(id.type);
+
+					// Handle bitfields: adjust field offset for proper byte alignment
+					if (id.bit_size > 0)
 					{
-						const DWARF_InfoData* ptrEntry = findEntryByPtr(entry->type);
-						if (ptrEntry && ptrEntry->abbrev == structid.abbrev)
-							hasBackRef = true;
+						if (id.data_bit_offset > 0)
+						{
+							// DWARF4/5: data_bit_offset is absolute offset from beginning of struct
+							field_offset = baseoff + (id.data_bit_offset / 8);
+						}
+						else if (id.bit_offset > 0)
+						{
+							// DWARF2/3: bit_offset needs conversion for little-endian
+							// For now, keep the byte-aligned offset
+							// Full bitfield support would require LF_BITFIELD types
+						}
 					}
-					cbDwarfTypes += addFieldMember(dfieldtype, 0, baseoff + off, getTypeByDWARFPtr(id.type), id.name);
+					else
+					{
+						// Check for back references in regular fields
+						const DWARF_InfoData* entry = findEntryByPtr(id.type);
+						if (entry && entry->tag == DW_TAG_pointer_type)
+						{
+							const DWARF_InfoData* ptrEntry = findEntryByPtr(entry->type);
+							if (ptrEntry && ptrEntry->abbrev == structid.abbrev)
+								hasBackRef = true;
+						}
+					}
+
+					cbDwarfTypes += addFieldMember(dfieldtype, 0, field_offset, type_to_use, id.name);
 					nfields++;
 				}
 				else if (id.type)
@@ -1235,7 +1260,11 @@ void CV2PDB::getDWARFSubrangeInfo(DWARF_InfoData& subrangeid, const DIECursor& p
 	basetype = getTypeByDWARFPtr(subrangeid.type);
 	if (subrangeid.has_lower_bound)
 		lowerBound = subrangeid.lower_bound;
-	upperBound = subrangeid.upper_bound;
+	// Use DW_AT_count if present, otherwise fall back to upper_bound
+	if (subrangeid.count > 0)
+		upperBound = lowerBound + subrangeid.count - 1;
+	else
+		upperBound = subrangeid.upper_bound;
 }
 
 // Compute a type ID for a basic DWARF type.
@@ -1878,6 +1907,7 @@ bool CV2PDB::createTypes()
 					// the non-declaration copy we emit it again, but now we
 					// end up with multiple copies of the same UDT in the PDB
 					// and the debugger gets confused.
+					
 					cvtype = addDWARFStructure(id, cursor);
 				}
 				break;

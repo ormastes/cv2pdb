@@ -919,6 +919,9 @@ DWARF_InfoData* DIECursor::readNext(DWARF_InfoData* entry, bool stopAtNull)
 					assert(false);
 			    break;
 			case DW_AT_type:      assert(a.type == Ref); id.type = a.ref; break;
+			case DW_AT_bit_size:  assert(a.type == Const); id.bit_size = (unsigned int)a.cons; break;
+			case DW_AT_bit_offset: assert(a.type == Const); id.bit_offset = (unsigned int)a.cons; break;
+			case DW_AT_data_bit_offset: assert(a.type == Const); id.data_bit_offset = (unsigned int)a.cons; break;
 			case DW_AT_inline:    assert(a.type == Const); id.inlined = a.cons; break;
 			case DW_AT_external:  assert(a.type == Flag); id.external = a.flag; break;
 			case DW_AT_declaration: assert(a.type == Flag); id.isDecl = a.flag; break;
@@ -935,6 +938,11 @@ DWARF_InfoData* DIECursor::readNext(DWARF_InfoData* entry, bool stopAtNull)
 					id.lower_bound = a.cons;
 					id.has_lower_bound = true;
 				}
+				break;
+			case DW_AT_count:
+				assert(a.type == Const || a.type == Ref);
+				if (a.type == Const)
+					id.count = a.cons;
 				break;
 			case DW_AT_containing_type: assert(a.type == Ref); id.containing_type = a.ref; break;
 			case DW_AT_specification: assert(a.type == Ref); id.specification = a.ref; break;
