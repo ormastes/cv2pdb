@@ -1042,6 +1042,10 @@ int CV2PDB::addDWARFFields(DWARF_InfoData& structid, DIECursor& cursor, int base
 	bool isunion = structid.tag == DW_TAG_union_type;
 	int nfields = 0;
 
+	// Track bitfield position for consecutive bitfields in same storage unit
+	int last_bitfield_byte_offset = -1;
+	int cumulative_bit_offset = 0;
+
 	// cursor points to the first member of the class/struct/union.
 	DWARF_InfoData id;
 	while (cursor.readNext(&id, true /* stopAtNull */))
@@ -1071,27 +1075,64 @@ int CV2PDB::addDWARFFields(DWARF_InfoData& structid, DIECursor& cursor, int base
 				{
 					checkDWARFTypeAlloc(kMaxNameLen + 100);
 					codeview_fieldtype* dfieldtype = (codeview_fieldtype*)(dwarfTypes + cbDwarfTypes);
-					
+
 					int field_offset = baseoff + off;
 					int type_to_use = getTypeByDWARFPtr(id.type);
 
-					// Handle bitfields: adjust field offset for proper byte alignment
+					// Handle bitfields with proper LF_BITFIELD types
 					if (id.bit_size > 0)
 					{
+						int bit_offset_in_unit = 0;
+
+						// Check if this is a new storage unit or continuation of the previous one
+						if (field_offset != last_bitfield_byte_offset)
+						{
+							// New storage unit, reset cumulative bit offset
+							cumulative_bit_offset = 0;
+							last_bitfield_byte_offset = field_offset;
+						}
+
 						if (id.data_bit_offset > 0)
 						{
 							// DWARF4/5: data_bit_offset is absolute offset from beginning of struct
 							field_offset = baseoff + (id.data_bit_offset / 8);
+							bit_offset_in_unit = id.data_bit_offset % 8;
 						}
-						else if (id.bit_offset > 0)
+						else if (id.bit_offset >= 0)
 						{
-							// DWARF2/3: bit_offset needs conversion for little-endian
-							// For now, keep the byte-aligned offset
-							// Full bitfield support would require LF_BITFIELD types
+							// DWARF2/3: bit_offset is from MSB of the storage unit
+							// For little-endian, we need to convert to LSB offset
+							const DWARF_InfoData* typeEntry = findEntryByPtr(id.type);
+							int storage_size_bits = 32; // Default to 32 bits
+							if (typeEntry && typeEntry->byte_size > 0)
+							{
+								storage_size_bits = typeEntry->byte_size * 8;
+							}
+							// Convert from MSB offset to LSB offset for little-endian
+							bit_offset_in_unit = storage_size_bits - id.bit_offset - id.bit_size;
 						}
+						else
+						{
+							// No bit offset specified, use cumulative offset for consecutive bitfields
+							bit_offset_in_unit = cumulative_bit_offset;
+						}
+
+						// Use the new addFieldBitfield function for proper bitfield support
+						// Note: addFieldBitfield creates a new type internally, which updates nextUserType
+						// Use public attribute (3) as default for bitfield members
+						cbDwarfTypes += addFieldBitfield(dfieldtype, 3, bit_offset_in_unit, id.bit_size, type_to_use, id.name);
+
+						// Update cumulative bit offset for next bitfield in same unit
+						cumulative_bit_offset = bit_offset_in_unit + id.bit_size;
+						nfields++;
 					}
 					else
 					{
+						// Regular field (not a bitfield)
+						// Reset bitfield tracking for next group
+						last_bitfield_byte_offset = -1;
+						cumulative_bit_offset = 0;
+
 						// Check for back references in regular fields
 						const DWARF_InfoData* entry = findEntryByPtr(id.type);
 						if (entry && entry->tag == DW_TAG_pointer_type)
@@ -1100,10 +1141,10 @@ int CV2PDB::addDWARFFields(DWARF_InfoData& structid, DIECursor& cursor, int base
 							if (ptrEntry && ptrEntry->abbrev == structid.abbrev)
 								hasBackRef = true;
 						}
-					}
 
-					cbDwarfTypes += addFieldMember(dfieldtype, 0, field_offset, type_to_use, id.name);
-					nfields++;
+						cbDwarfTypes += addFieldMember(dfieldtype, 0, field_offset, type_to_use, id.name);
+						nfields++;
+					}
 				}
 				else if (id.type)
 				{
@@ -2067,17 +2108,29 @@ bool CV2PDB::createTypes()
 
 			if (cvtype >= 0)
 			{
-				assert(cvtype == typeID); 
+				assert(cvtype == typeID);
 				typeID++;
 
 				assert(mapEntryPtrToTypeID[id.entryPtr] == cvtype);
-				assert(typeID == nextUserType);
+
+				// Note: When creating structures with bitfields, nextUserType may be ahead
+				// because bitfield types are created on demand during field processing
+				if (nextUserType > typeID)
+				{
+					// Sync typeID with nextUserType when bitfield types were created
+					typeID = nextUserType;
+				}
+				else
+				{
+					assert(typeID == nextUserType);
+				}
 			}
 		}
 	}
 
 	assert(typeID == nextUserType);
-	assert(typeID == firstUserType + mapEntryPtrToTypeID.size());
+	// Note: The mapEntryPtrToTypeID size assertion may not hold when bitfield types are created
+	// because bitfield types don't have corresponding DWARF entries
 	return true;
 }
 
