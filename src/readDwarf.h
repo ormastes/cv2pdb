@@ -256,7 +256,12 @@ struct DWARF_InfoData
 	// Bitfield support
 	unsigned int bit_size = 0;
 	unsigned int bit_offset = 0;
-	unsigned int data_bit_offset = 0;
+	unsigned int data_bit_offset = (unsigned int)-1;  // -1 means not set
+
+	// Access control (DW_AT_accessibility)
+	// DW_ACCESS_public = 1, DW_ACCESS_protected = 2, DW_ACCESS_private = 3
+	// 0 = not specified (default to public for structs, private for classes)
+	unsigned int accessibility = 0;
 
 	// Array count attribute (DW_AT_count)
 	long count = 0;
@@ -300,7 +305,7 @@ struct DWARF_InfoData
 		has_artificial = false;
 		bit_size = 0;
 		bit_offset = 0;
-		data_bit_offset = 0;
+		data_bit_offset = (unsigned int)-1;  // -1 means not set
 		count = 0;
 	}
 

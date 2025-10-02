@@ -821,8 +821,9 @@ int CV2PDB::addFieldMember(codeview_fieldtype* dfieldtype, int attr, int offset,
 int CV2PDB::appendBitfieldType(int base_type, int bit_offset, int bit_size)
 {
 	// Create a bitfield type as a separate type record
-	checkUserTypeAlloc(12);
-	codeview_reftype* bftype = (codeview_reftype*)(userTypes + cbUserTypes);
+	// Write to dwarfTypes so it doesn't interfere with field list construction
+	checkDWARFTypeAlloc(12);
+	codeview_reftype* bftype = (codeview_reftype*)(dwarfTypes + cbDwarfTypes);
 
 	bftype->bitfield_v2.len = 10;  // Size of structure minus 2 for the len field
 	bftype->bitfield_v2.id = LF_BITFIELD_V2;
@@ -833,19 +834,25 @@ int CV2PDB::appendBitfieldType(int base_type, int bit_offset, int bit_size)
 	int bitfield_type_index = nextUserType++;
 
 	// Add padding to make total size 12 bytes
-	unsigned char* p = (unsigned char*)(userTypes + cbUserTypes);
+	unsigned char* p = (unsigned char*)(dwarfTypes + cbDwarfTypes);
 	p[10] = 0xf2;  // Padding byte
 	p[11] = 0xf1;  // Padding byte
 
-	cbUserTypes += 12;
+	cbDwarfTypes += 12;
+
+	printf("appendBitfieldType: base_type=0x%X, bit_offset=%d, bit_size=%d, assigned_id=0x%X, written_to_dwarfTypes_offset=%d\n",
+		translateType(base_type), bit_offset, bit_size, bitfield_type_index, cbDwarfTypes - 12);
 
 	return bitfield_type_index;
 }
 
 int CV2PDB::addFieldBitfield(codeview_fieldtype* dfieldtype, int attr, int bit_offset, int bit_size, int base_type, const char* name)
 {
-	// Create the bitfield type
+	// Create the bitfield type - this writes to userTypes at current cbUserTypes position
 	int bitfield_type_index = appendBitfieldType(base_type, bit_offset, bit_size);
+
+	printf("addFieldBitfield: name='%s', bitfield_type=0x%X, bit_offset=%d, bit_size=%d, base_type=0x%X, cbUserTypes=%d\n",
+		name, bitfield_type_index, bit_offset, bit_size, base_type, cbUserTypes);
 
 	// Now add the member to the field list, referencing the bitfield type
 	dfieldtype->member_v2.id = v3 ? LF_MEMBER_V3 : LF_MEMBER_V2;
