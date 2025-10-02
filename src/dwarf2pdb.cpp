@@ -1076,7 +1076,6 @@ int CV2PDB::addDWARFFields(DWARF_InfoData& structid, DIECursor& cursor, int base
 				{
 					checkUserTypeAlloc(kMaxNameLen + 100);
 					codeview_fieldtype* dfieldtype = (codeview_fieldtype*)(userTypes + cbUserTypes);
-					printf("    Before processing '%s': dfieldtype offset=%d, cbUserTypes=%d\n", id.name, (int)((unsigned char*)dfieldtype - userTypes), cbUserTypes);
 
 					int field_offset = baseoff + off;
 					int type_to_use = getTypeByDWARFPtr(id.type);
@@ -1227,8 +1226,6 @@ int CV2PDB::addDWARFStructure(DWARF_InfoData& structid, DIECursor cursor)
 		// The field list will get the NEXT available type ID
 		// We write it first, then bitfield types, so it gets the first ID in this sequence
 		int savedFieldlistID = nextUserType++;
-		printf("Field list for '%s': ID=0x%X (nextUserType after write=%d)\n",
-			structid.name ? structid.name : "(anon)", savedFieldlistID, nextUserType);
 
 #if 0
 		if(structid.containing_type && structid.containing_type != structid.entryOff)
@@ -1259,8 +1256,6 @@ int CV2PDB::addDWARFStructure(DWARF_InfoData& structid, DIECursor cursor)
 			cbUserTypes += bitfieldTypesSize;
 			// Remove from dwarfTypes since we copied to userTypes
 			cbDwarfTypes = dwarfTypesBeforeFields;
-			printf("Copied %d bytes of bitfield types from dwarfTypes to userTypes for struct '%s'\n",
-				bitfieldTypesSize, structid.name ? structid.name : "(anon)");
 		}
 	}
 
@@ -1286,9 +1281,6 @@ int CV2PDB::addDWARFStructure(DWARF_InfoData& structid, DIECursor cursor)
 	int len = addAggregate(cvt, structid.tag == DW_TAG_class_type, nfields, fieldlistType, attr, 0, 0, structid.byte_size, namebuf, nullptr);
 	cbUserTypes += len;
 	int cvtype = nextUserType++;
-
-	printf("addDWARFStructure: '%s' struct_id=0x%X, fieldlist_id=0x%X, nfields=%d\n",
-		namebuf, cvtype, fieldlistType, nfields);
 
 	//ensureUDT()?
 	addUdtSymbol(udttype, namebuf);

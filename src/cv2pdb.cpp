@@ -840,21 +840,15 @@ int CV2PDB::appendBitfieldType(int base_type, int bit_offset, int bit_size)
 
 	cbDwarfTypes += 12;
 
-	printf("appendBitfieldType: base_type=0x%X, bit_offset=%d, bit_size=%d, assigned_id=0x%X, written_to_dwarfTypes_offset=%d\n",
-		translateType(base_type), bit_offset, bit_size, bitfield_type_index, cbDwarfTypes - 12);
-
 	return bitfield_type_index;
 }
 
 int CV2PDB::addFieldBitfield(codeview_fieldtype* dfieldtype, int attr, int bit_offset, int bit_size, int base_type, const char* name)
 {
-	// Create the bitfield type - this writes to userTypes at current cbUserTypes position
+	// Create the bitfield type
 	int bitfield_type_index = appendBitfieldType(base_type, bit_offset, bit_size);
 
-	printf("addFieldBitfield: name='%s', bitfield_type=0x%X, bit_offset=%d, bit_size=%d, base_type=0x%X, cbUserTypes=%d\n",
-		name, bitfield_type_index, bit_offset, bit_size, base_type, cbUserTypes);
-
-	// Now add the member to the field list, referencing the bitfield type
+	// Add the member to the field list, referencing the bitfield type
 	dfieldtype->member_v2.id = v3 ? LF_MEMBER_V3 : LF_MEMBER_V2;
 	dfieldtype->member_v2.attribute = attr;
 	dfieldtype->member_v2.type = bitfield_type_index;
