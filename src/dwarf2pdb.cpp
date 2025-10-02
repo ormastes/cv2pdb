@@ -1122,8 +1122,14 @@ int CV2PDB::addDWARFFields(DWARF_InfoData& structid, DIECursor& cursor, int base
 
 						// Use the new addFieldBitfield function for proper bitfield support
 						// Note: addFieldBitfield creates a new type internally, which updates nextUserType
-						// Use public attribute (3) as default for bitfield members
-						cbUserTypes += addFieldBitfield(dfieldtype, 3, bit_offset_in_unit, id.bit_size, type_to_use, id.name);
+						// Convert DWARF accessibility to CodeView attribute:
+						// DWARF: public=1, protected=2, private=3
+						// CodeView: private=1, protected=2, public=3
+						int attr = 3; // default to public
+						if (id.accessibility == 1) attr = 3;  // DW_ACCESS_public -> CV public
+						else if (id.accessibility == 2) attr = 2;  // DW_ACCESS_protected -> CV protected
+						else if (id.accessibility == 3) attr = 1;  // DW_ACCESS_private -> CV private
+						cbUserTypes += addFieldBitfield(dfieldtype, attr, bit_offset_in_unit, id.bit_size, type_to_use, id.name);
 
 						// Update cumulative bit offset for next bitfield in same unit
 						cumulative_bit_offset = bit_offset_in_unit + id.bit_size;
