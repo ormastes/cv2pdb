@@ -6,3 +6,6 @@
 /src/.vs
 /src/*.opensdf
 /bug_test/gen/
+/bug_test/build/
+/bug_test/out/
+.vs

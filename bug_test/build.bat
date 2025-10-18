@@ -1,34 +1,44 @@
 @echo off
-REM Build script that works in both CMD and PowerShell
+echo ===================================
+echo Building main.cpp with Clang
+echo ===================================
 
-REM Add compiler to PATH (works in both CMD and PowerShell)
-set "PATH=C:\dev\WinMG32\bin;%PATH%"
+if not exist build mkdir build
+cd build
 
-echo Building main.cpp with debug info...
-clang -g -O0 -m32 main.cpp -o main.exe
-clang -g -O0 -m32 main3.cpp -o main3.exe
+echo.
+echo [1/3] Configuring CMake...
+cmake -G "Ninja" ^
+  -DCMAKE_C_COMPILER="C:/dev/install/clang+llvm-18.1.8-x86_64-pc-windows-msvc/bin/clang.exe" ^
+  -DCMAKE_CXX_COMPILER="C:/dev/install/clang+llvm-18.1.8-x86_64-pc-windows-msvc/bin/clang++.exe" ^
+  -DCMAKE_BUILD_TYPE=Debug ^
+  ..
+
+if %errorlevel% neq 0 (
+    echo CMake configuration failed!
+    exit /b %errorlevel%
+)
+
+echo.
+echo [2/3] Building with Ninja...
+ninja
 
 if %errorlevel% neq 0 (
     echo Build failed!
-    exit /b 1
+    exit /b %errorlevel%
 )
 
-echo Dumping raw DWARF info...
-llvm-dwarfdump main.exe > dwarf_dump.txt 2>&1
-llvm-dwarfdump main3.exe > dwarf_dump3.txt 2>&1
-
-echo Converting DWARF to PDB...
-..\bin\Debug_x64\cv2pdb.exe main.exe main_new.exe main.pdb > dwarf2pdb_log.txt 2>&1
-..\bin\Debug_x64\cv2pdb.exe main3.exe main3_new.exe main3.pdb > dwarf2pdb_log3.txt 2>&1
-
-if %errorlevel% neq 0 (
-    echo cv2pdb conversion failed!
-    exit /b 1
-)
-
-echo Dumping PDB information...
-llvm-pdbutil dump -types main.pdb > types.txt 2>&1
-llvm-pdbutil dump -symbols main.pdb > symbols.txt 2>&1
-llvm-pdbutil dump -summary main.pdb > summary.txt 2>&1
-
-echo Build complete! Check types.txt, symbols.txt, summary.txt, and dwarf_dump.txt for details.
+echo.
+echo [3/3] Verifying outputs...
+echo.
+dir main.exe main.pdb
+echo.
+echo ===================================
+echo SUCCESS! Files generated:
+echo   - main.exe    (Updated with PDB debug info)
+echo   - main.pdb    (PDB file for Visual Studio debugging)
+echo.
+echo To debug in Visual Studio:
+echo   1. Open main_debug.sln
+echo   2. Press F5 to start debugging
+echo ===================================
