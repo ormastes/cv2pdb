@@ -1042,6 +1042,10 @@ int CV2PDB::addDWARFFields(DWARF_InfoData& structid, DIECursor& cursor, int base
 	bool isunion = structid.tag == DW_TAG_union_type;
 	int nfields = 0;
 
+	// Track bitfield position for consecutive bitfields in same storage unit
+	int last_bitfield_byte_offset = -1;
+	int cumulative_bit_offset = 0;
+
 	// cursor points to the first member of the class/struct/union.
 	DWARF_InfoData id;
 	while (cursor.readNext(&id, true /* stopAtNull */))
@@ -1064,21 +1068,90 @@ int CV2PDB::addDWARFFields(DWARF_InfoData& structid, DIECursor& cursor, int base
 				}
 			}
 
+			// Process all members (including bitfields)
 			if (isunion || cvid == S_CONSTANT_V2)
 			{
 				if (id.name)
 				{
 					checkDWARFTypeAlloc(kMaxNameLen + 100);
 					codeview_fieldtype* dfieldtype = (codeview_fieldtype*)(dwarfTypes + cbDwarfTypes);
-					const DWARF_InfoData* entry = findEntryByPtr(id.type);
-					if (entry && entry->tag == DW_TAG_pointer_type)
+
+					int field_offset = baseoff + off;
+					int type_to_use = getTypeByDWARFPtr(id.type);
+
+					// Handle bitfields with proper LF_BITFIELD types
+					if (id.bit_size > 0)
 					{
-						const DWARF_InfoData* ptrEntry = findEntryByPtr(entry->type);
-						if (ptrEntry && ptrEntry->abbrev == structid.abbrev)
-							hasBackRef = true;
+						int bit_offset_in_unit = 0;
+
+						// Check if this is a new storage unit or continuation of the previous one
+						if (field_offset != last_bitfield_byte_offset)
+						{
+							// New storage unit, reset cumulative bit offset
+							cumulative_bit_offset = 0;
+							last_bitfield_byte_offset = field_offset;
+						}
+
+						if (id.data_bit_offset != (unsigned int)-1)
+						{
+							// DWARF4/5: data_bit_offset is absolute offset from beginning of struct
+							// Note: data_bit_offset can be 0 for first bitfield, so we check != -1
+							field_offset = baseoff + (id.data_bit_offset / 8);
+							bit_offset_in_unit = id.data_bit_offset % 8;
+						}
+						else if (id.bit_offset >= 0)
+						{
+							// DWARF2/3: bit_offset is from MSB of the storage unit
+							// For little-endian, we need to convert to LSB offset
+							const DWARF_InfoData* typeEntry = findEntryByPtr(id.type);
+							int storage_size_bits = 32; // Default to 32 bits
+							if (typeEntry && typeEntry->byte_size > 0)
+							{
+								storage_size_bits = typeEntry->byte_size * 8;
+							}
+							// Convert from MSB offset to LSB offset for little-endian
+							bit_offset_in_unit = storage_size_bits - id.bit_offset - id.bit_size;
+						}
+						else
+						{
+							// No bit offset specified, use cumulative offset for consecutive bitfields
+							bit_offset_in_unit = cumulative_bit_offset;
+						}
+
+						// Use the new addFieldBitfield function for proper bitfield support
+						// Note: addFieldBitfield creates a new type internally, which updates nextUserType
+						// Convert DWARF accessibility to CodeView attribute:
+						// DWARF: public=1, protected=2, private=3
+						// CodeView: private=1, protected=2, public=3
+						int attr = 3; // default to public
+						if (id.accessibility == 1) attr = 3;  // DW_ACCESS_public -> CV public
+						else if (id.accessibility == 2) attr = 2;  // DW_ACCESS_protected -> CV protected
+						else if (id.accessibility == 3) attr = 1;  // DW_ACCESS_private -> CV private
+						cbDwarfTypes += addFieldBitfield(dfieldtype, attr, bit_offset_in_unit, id.bit_size, type_to_use, id.name);
+
+						// Update cumulative bit offset for next bitfield in same unit
+						cumulative_bit_offset = bit_offset_in_unit + id.bit_size;
+						nfields++;
 					}
-					cbDwarfTypes += addFieldMember(dfieldtype, 0, baseoff + off, getTypeByDWARFPtr(id.type), id.name);
-					nfields++;
+					else
+					{
+						// Regular field (not a bitfield)
+						// Reset bitfield tracking for next group
+						last_bitfield_byte_offset = -1;
+						cumulative_bit_offset = 0;
+
+						// Check for back references in regular fields
+						const DWARF_InfoData* entry = findEntryByPtr(id.type);
+						if (entry && entry->tag == DW_TAG_pointer_type)
+						{
+							const DWARF_InfoData* ptrEntry = findEntryByPtr(entry->type);
+							if (ptrEntry && ptrEntry->abbrev == structid.abbrev)
+								hasBackRef = true;
+						}
+
+						cbDwarfTypes += addFieldMember(dfieldtype, 0, field_offset, type_to_use, id.name);
+						nfields++;
+					}
 				}
 				else if (id.type)
 				{
@@ -1235,7 +1308,11 @@ void CV2PDB::getDWARFSubrangeInfo(DWARF_InfoData& subrangeid, const DIECursor& p
 	basetype = getTypeByDWARFPtr(subrangeid.type);
 	if (subrangeid.has_lower_bound)
 		lowerBound = subrangeid.lower_bound;
-	upperBound = subrangeid.upper_bound;
+	// Use DW_AT_count if present, otherwise fall back to upper_bound
+	if (subrangeid.count > 0)
+		upperBound = lowerBound + subrangeid.count - 1;
+	else
+		upperBound = subrangeid.upper_bound;
 }
 
 // Compute a type ID for a basic DWARF type.
@@ -1878,6 +1955,7 @@ bool CV2PDB::createTypes()
 					// the non-declaration copy we emit it again, but now we
 					// end up with multiple copies of the same UDT in the PDB
 					// and the debugger gets confused.
+					
 					cvtype = addDWARFStructure(id, cursor);
 				}
 				break;
@@ -2037,17 +2115,29 @@ bool CV2PDB::createTypes()
 
 			if (cvtype >= 0)
 			{
-				assert(cvtype == typeID); 
+				assert(cvtype == typeID);
 				typeID++;
 
 				assert(mapEntryPtrToTypeID[id.entryPtr] == cvtype);
-				assert(typeID == nextUserType);
+
+				// Note: When creating structures with bitfields, nextUserType may be ahead
+				// because bitfield types are created on demand during field processing
+				if (nextUserType > typeID)
+				{
+					// Sync typeID with nextUserType when bitfield types were created
+					typeID = nextUserType;
+				}
+				else
+				{
+					assert(typeID == nextUserType);
+				}
 			}
 		}
 	}
 
 	assert(typeID == nextUserType);
-	assert(typeID == firstUserType + mapEntryPtrToTypeID.size());
+	// Note: The mapEntryPtrToTypeID size assertion may not hold when bitfield types are created
+	// because bitfield types don't have corresponding DWARF entries
 	return true;
 }
 

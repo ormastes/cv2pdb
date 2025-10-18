@@ -69,6 +69,8 @@ public:
 	int addPointerType(unsigned char* dtype, int type, int attr = 0x800A);
 
 	int addFieldMember(codeview_fieldtype* dfieldtype, int attr, int offset, int type, const char* name);
+	int addFieldBitfield(codeview_fieldtype* dfieldtype, int attr, int bit_offset, int bit_size, int base_type, const char* name);
+	int appendBitfieldType(int base_type, int bit_offset, int bit_size);
 	int addFieldStaticMember(codeview_fieldtype* dfieldtype, int attr, int type, const char* name);
 	int addFieldNestedType(codeview_fieldtype* dfieldtype, int type, const char* name);
 	int addFieldEnumerate(codeview_fieldtype* dfieldtype, const char* name, int val);

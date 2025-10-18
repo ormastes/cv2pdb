@@ -5,3 +5,4 @@
 *.user
 /src/.vs
 /src/*.opensdf
+/bug_test/gen/
