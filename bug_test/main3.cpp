@@ -106,6 +106,7 @@ int main() {
     // Test array access
     g_int_array[0] = 42;
     g_float_array[0] = 1.23f;
+    xx.a = 5;
 
-    return my_struct_array_var[0].a + cls.pub_a + pt.x + cont.value + col;
+    return my_struct_array_var[0].a + cls.pub_a + pt.x + cont.value + col + xx.a;
 }
