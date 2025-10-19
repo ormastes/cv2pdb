@@ -1,14 +1,54 @@
 # CV2PDB Architecture and Implementation Guide
 
+> 🎯 **SIMPLE SOLUTION: NO PLUGINS NEEDED!**
+>
+> **All diagrams use Mermaid** - Works natively in VSCode!
+>
+> **To view diagrams**:
+> 1. Open this file in VSCode
+> 2. Press `Ctrl+Shift+V` (Windows/Linux) or `Cmd+Shift+V` (Mac)
+> 3. Done! All diagrams render automatically
+>
+> **No PlantUML, No StarUML, No Java, No problems!**
+
+## Viewing Diagrams
+
+### ✅ Mermaid Diagrams Work Without Any Setup!
+
+**Just follow these simple steps:**
+
+1. **Open this file** in VSCode
+2. **Press** `Ctrl+Shift+V` (Windows/Linux) or `Cmd+Shift+V` (Mac)
+3. **Done!** All diagrams will render automatically in the preview
+
+**That's it! No plugins, no installation, no configuration needed!**
+
+### Optional: Enhanced Mermaid Support
+
+For syntax highlighting while editing (optional):
+```bash
+code --install-extension bierner.markdown-mermaid
+```
+
+### Why We Use Only Mermaid
+
+- ✅ **No installation required** - works immediately in VSCode
+- ✅ **Native VSCode support** - built into Markdown preview
+- ✅ **No Java needed** - unlike PlantUML
+- ✅ **No plugins needed** - unlike StarUML
+- ✅ **GitHub compatible** - renders on GitHub too
+- ✅ **Simple and reliable** - no complex setup or licensing
+
 ## Table of Contents
 1. [Overview](#overview)
-2. [Main Workflow](#main-workflow)
-3. [Core Class Architecture](#core-class-architecture)
-4. [Type Conversion System](#type-conversion-system)
-5. [Bitfield Implementation](#bitfield-implementation)
-6. [Key Functions](#key-functions)
-7. [Conversion Sequence](#conversion-sequence)
-8. [Example: Bitfield Conversion](#example-bitfield-conversion)
+2. [System Architecture](#system-architecture)
+3. [Main Workflow](#main-workflow)
+4. [Core Class Architecture](#core-class-architecture)
+5. [Type Conversion System](#type-conversion-system)
+6. [Bitfield Implementation](#bitfield-implementation)
+7. [Key Functions](#key-functions)
+8. [Conversion Sequence](#conversion-sequence)
+9. [Example: Bitfield Conversion](#example-bitfield-conversion)
 
 ## Overview
 
@@ -19,83 +59,181 @@
 - Convert D language debug info to PDB format
 - Support C/C++ projects using non-MSVC toolchains
 
+## System Architecture
+
+### High-Level System Overview (Mermaid)
+
+```mermaid
+graph TB
+    GCC[GCC/MinGW Executable]
+    DMD[DMD D Language Executable]
+
+    PE[PE Image Loader]
+    DET[Debug Format Detector]
+
+    DP[DWARF Parser]
+    DIE[DIE Tree Builder]
+    DM[DWARF Type Mapper]
+
+    CP[CV Parser]
+    CM[CV Type Mapper]
+
+    TC[Type System Converter]
+    SC[Symbol Converter]
+    LP[Line Info Processor]
+    PW[PDB Writer]
+
+    MSPDB[(mspdb.dll)]
+
+    EXE[Modified Executable]
+    PDB[(PDB File)]
+
+    GCC --> PE
+    DMD --> PE
+    PE --> DET
+    DET -->|DWARF path| DP
+    DET -->|CodeView path| CP
+    DP --> DIE
+    DIE --> DM
+    DM --> TC
+    CP --> CM
+    CM --> TC
+    TC --> SC
+    SC --> LP
+    LP --> PW
+    PW --> MSPDB
+    MSPDB --> PDB
+    PW --> EXE
+```
+
+
+### Data Flow Pipeline (Mermaid)
+
+```mermaid
+graph LR
+    A1[Load PE/EXE file]
+    A2[Map debug sections]
+    A3[Identify format]
+
+    B1{Format?}
+    B2[Parse DWARF]
+    B3[Build DIE tree]
+    B4[Map DWARF types]
+    B5[Parse CodeView]
+    B6[Update indices]
+    B7[Deduplicate types]
+    B8[Assign type IDs]
+
+    C1[Convert functions]
+    C2[Process globals]
+    C3[Handle locals]
+    C4[Convert parameters]
+
+    D1[Process line numbers]
+    D2[Map source to address]
+    D3[Generate public symbols]
+    D4[Create modules]
+
+    E1[Create PDB via mspdb.dll]
+    E2[Write TPI stream]
+    E3[Write DBI stream]
+    E4[Write line info]
+    E5[Update executable]
+    E6[Add RSDS signature]
+
+    A1 --> A2
+    A2 --> A3
+    A3 --> B1
+
+    B1 -->|DWARF| B2
+    B2 --> B3
+    B3 --> B4
+    B1 -->|CodeView| B5
+    B5 --> B6
+    B4 --> B7
+    B6 --> B7
+    B7 --> B8
+
+    B8 --> C1
+    C1 --> C2
+    C2 --> C3
+    C3 --> C4
+
+    C4 --> D1
+    D1 --> D2
+    D2 --> D3
+    D3 --> D4
+
+    D4 --> E1
+    E1 --> E2
+    E2 --> E3
+    E3 --> E4
+    E4 --> E5
+    E5 --> E6
+```
+
+### Component Interaction Diagram
+
+*[Component interaction is shown in the System Architecture diagram above]*
+
+### Deployment and Dependencies Diagram
+
+*[See the System Architecture diagram for deployment overview]*
+
+
 ## Main Workflow
 
-The conversion process follows this sequence:
+### Main Execution Flow (Mermaid)
 
-```plantuml
-@startuml
-!theme plain
+```mermaid
+flowchart TD
+    Start([Start])
+    ParseArgs[Parse command line arguments]
+    LoadPE[Load PE/EXE image]
+    CheckFormat{Has DWARF debug info?}
 
-title cv2pdb Main Execution Flow
+    CreateDWARF[createDWARFModules]
+    AddDWARFSym[addDWARFSymbols]
+    AddDWARFLines[addDWARFLines]
+    AddDWARFPub[addDWARFPublics]
+    WriteDWARF[writeDWARFImage]
 
-start
+    InitSeg[initSegMap]
+    InitGlobalSym[initGlobalSymbols]
+    InitGlobalTypes[initGlobalTypes]
+    CreateMod[createModules]
+    AddTypes[addTypes]
+    AddSym[addSymbols]
+    AddSrcLines[addSrcLines]
+    AddPub[addPublics]
+    WriteCV[writeImage]
 
-:Parse command line arguments;
-note right
-  -D<version>: D compiler version
-  -C: C/C++ mode
-  -n: disable symbol demangling
-  -e: use typedef enum
-  -debug: enable debug output
-end note
+    CommitPDB[Commit PDB file]
+    End1([End])
 
-:Load PE/EXE image;
+    Start --> ParseArgs
+    ParseArgs --> LoadPE
+    LoadPE --> CheckFormat
 
-if (Has DWARF debug info?) then (yes)
-  :Process DWARF path;
+    CheckFormat -->|Yes DWARF| CreateDWARF
+    CreateDWARF --> AddDWARFSym
+    AddDWARFSym --> AddDWARFLines
+    AddDWARFLines --> AddDWARFPub
+    AddDWARFPub --> WriteDWARF
+    WriteDWARF --> CommitPDB
 
-  :**createDWARFModules()**
-  Create PDB modules for each compilation unit;
+    CheckFormat -->|No CodeView| InitSeg
+    InitSeg --> InitGlobalSym
+    InitGlobalSym --> InitGlobalTypes
+    InitGlobalTypes --> CreateMod
+    CreateMod --> AddTypes
+    AddTypes --> AddSym
+    AddSym --> AddSrcLines
+    AddSrcLines --> AddPub
+    AddPub --> WriteCV
+    WriteCV --> CommitPDB
 
-  :**addDWARFSymbols()**
-  Convert DWARF types and symbols to PDB;
-
-  :**addDWARFLines()**
-  Convert line number information;
-
-  :**addDWARFPublics()**
-  Add public symbols;
-
-  :**writeDWARFImage()**
-  Write modified executable;
-
-else (no)
-  :Process CodeView path;
-
-  :**initSegMap()**
-  Initialize segment mapping;
-
-  :**initGlobalSymbols()**
-  Read global symbols;
-
-  :**initGlobalTypes()**
-  Read global types;
-
-  :**createModules()**
-  Create PDB modules;
-
-  :**addTypes()**
-  Add type information;
-
-  :**addSymbols()**
-  Add symbol information;
-
-  :**addSrcLines()**
-  Add source line info;
-
-  :**addPublics()**
-  Add public symbols;
-
-  :**writeImage()**
-  Write modified executable;
-endif
-
-:Commit PDB file;
-
-stop
-
-@enduml
+    CommitPDB --> End1
 ```
 
 ### Main Entry Point
@@ -112,125 +250,89 @@ Key steps:
 
 ## Core Class Architecture
 
-```plantuml
-@startuml
-!theme plain
+### Core Classes (Mermaid)
 
-title cv2pdb Core Class Structure
+```mermaid
+classDiagram
+    class CV2PDB {
+        +PEImage img
+        +mspdb PDB pdb
+        +mspdb DBI dbi
+        +mspdb TPI tpi
+        +byte globalTypes
+        +byte userTypes
+        +byte dwarfTypes
+        +int nextUserType
+        +int nextDwarfType
+        +DWARF_InfoData dwarfHead
+        +openPDB() bool
+        +createDWARFModules() bool
+        +addDWARFSymbols() bool
+        +addDWARFStructure() int
+        +addDWARFFields() int
+        +addFieldBitfield() int
+        +appendBitfieldType() int
+    }
 
-class CV2PDB {
-  +PEImage& img
-  +PEImage* imgDbg
+    class PEImage {
+        +SectionDescriptor text
+        +PESection debug_info
+        +PESection debug_abbrev
+        +PESection debug_line
+        +PESection debug_frame
+        +PESection debug_ranges
+        +PESection debug_loc
+        +loadExe() bool
+        +hasDWARF() bool
+        +countCVEntries() int
+    }
 
-  ' PDB interfaces
-  +mspdb::PDB* pdb
-  +mspdb::DBI* dbi
-  +mspdb::TPI* tpi
-  +mspdb::Mod** modules
+    class DWARF_InfoData {
+        +byte entryPtr
+        +int tag
+        +int code
+        +char name
+        +ulong byte_size
+        +byte type
+        +uint bit_size
+        +uint bit_offset
+        +uint data_bit_offset
+        +uint accessibility
+        +DWARF_InfoData parent
+        +DWARF_InfoData next
+        +DWARF_InfoData children
+        +merge() void
+        +clear() void
+    }
 
-  ' Type storage
-  +byte* globalTypes
-  +byte* userTypes
-  +byte* dwarfTypes
-  +int nextUserType
-  +int nextDwarfType
+    class DIECursor {
+        +DWARF_CompilationUnitInfo cu
+        +byte ptr
+        +int level
+        +bool prevHasChild
+        +DWARF_InfoData prevNode
+        +readNext() DWARF_InfoData
+        +gotoSibling() void
+        +getSubtreeCursor() DIECursor
+    }
 
-  ' Symbol storage
-  +byte* globalSymbols
-  +byte* udtSymbols
+    class DWARF_CompilationUnitInfo {
+        +uint32_t unit_length
+        +uint16_t version
+        +byte address_size
+        +uint32_t debug_abbrev_offset
+        +uint32_t base_address
+        +byte start_ptr
+        +byte end_ptr
+        +read() byte
+    }
 
-  ' DWARF structures
-  +DWARF_InfoData* dwarfHead
-  +unordered_map<byte*, int> mapEntryPtrToTypeID
-  +unordered_map<byte*, DWARF_InfoData*> mapEntryPtrToEntry
-
-  ' Main methods
-  +bool openPDB(pdbname)
-  +bool createDWARFModules()
-  +bool addDWARFSymbols()
-  +int addDWARFStructure(id, cursor)
-  +int addDWARFFields(structid, cursor, off)
-  +int addFieldBitfield(attr, bit_offset, bit_size, base_type, name)
-  +int appendBitfieldType(base_type, bit_offset, bit_size)
-}
-
-class PEImage {
-  +SectionDescriptor text
-  +PESection debug_info
-  +PESection debug_abbrev
-  +PESection debug_line
-  +PESection debug_frame
-  +PESection debug_ranges
-  +PESection debug_loc
-
-  +bool loadExe(filename)
-  +bool hasDWARF()
-  +int countCVEntries()
-}
-
-class DWARF_InfoData {
-  +byte* entryPtr
-  +int tag
-  +int code
-  +byte* abbrev
-  +bool hasChild
-
-  ' Attributes
-  +const char* name
-  +unsigned long byte_size
-  +byte* type
-  +byte* sibling
-  +unsigned long pclo, pchi
-  +unsigned long encoding
-
-  ' Bitfield attributes
-  +unsigned int bit_size
-  +unsigned int bit_offset
-  +unsigned int data_bit_offset
-
-  ' Accessibility
-  +unsigned int accessibility
-
-  ' Tree structure
-  +DWARF_InfoData* parent
-  +DWARF_InfoData* next
-  +DWARF_InfoData* children
-
-  +void merge(id)
-  +void clear()
-}
-
-class DIECursor {
-  +DWARF_CompilationUnitInfo* cu
-  +byte* ptr
-  +int level
-  +bool prevHasChild
-  +DWARF_InfoData* prevNode
-
-  +DWARF_InfoData* readNext(entry, stopAtNull)
-  +void gotoSibling()
-  +DIECursor getSubtreeCursor()
-}
-
-class DWARF_CompilationUnitInfo {
-  +uint32_t unit_length
-  +uint16_t version
-  +byte address_size
-  +uint32_t debug_abbrev_offset
-  +uint32_t base_address
-  +byte* start_ptr
-  +byte* end_ptr
-
-  +byte* read(debug, img, off)
-}
-
-CV2PDB --> PEImage : uses
-CV2PDB --> DWARF_InfoData : manages tree
-CV2PDB --> DIECursor : uses for traversal
-DIECursor --> DWARF_CompilationUnitInfo : references
-PEImage --> DWARF_CompilationUnitInfo : contains
-
-@enduml
+    CV2PDB --> PEImage : uses
+    CV2PDB --> DWARF_InfoData : manages tree
+    CV2PDB ..> DIECursor : traverses with
+    DIECursor --> DWARF_CompilationUnitInfo : references
+    PEImage --> DWARF_CompilationUnitInfo : contains
+    DWARF_InfoData --> DWARF_InfoData : parent-child
 ```
 
 ### Class Descriptions
@@ -299,54 +401,55 @@ Iterator for traversing the DWARF tree structure.
 
 ## Type Conversion System
 
-```plantuml
-@startuml
-!theme plain
+### Type Conversion (Mermaid)
 
-title DWARF to PDB Type Conversion
+```mermaid
+graph TD
+    DW1[DW_TAG_base_type]
+    DW2[DW_TAG_pointer_type]
+    DW3[DW_TAG_structure_type]
+    DW4[DW_TAG_class_type]
+    DW5[DW_TAG_union_type]
+    DW6[DW_TAG_array_type]
+    DW7[DW_TAG_enumeration_type]
+    DW8[DW_TAG_member]
 
-package "DWARF Types" {
-  [DW_TAG_base_type] as dwarf_base
-  [DW_TAG_pointer_type] as dwarf_ptr
-  [DW_TAG_structure_type] as dwarf_struct
-  [DW_TAG_class_type] as dwarf_class
-  [DW_TAG_union_type] as dwarf_union
-  [DW_TAG_array_type] as dwarf_array
-  [DW_TAG_enumeration_type] as dwarf_enum
-  [DW_TAG_member] as dwarf_member
-}
+    CV1[T_INT4/T_UINT4]
+    CV2[LF_POINTER]
+    CV3[LF_STRUCTURE]
+    CV4[LF_CLASS]
+    CV5[LF_UNION]
+    CV6[LF_ARRAY]
+    CV7[LF_ENUM]
+    CV8[LF_MEMBER]
+    CV9[LF_BITFIELD]
 
-package "CodeView/PDB Types" {
-  [LF_STRUCTURE] as cv_struct
-  [LF_CLASS] as cv_class
-  [LF_UNION] as cv_union
-  [LF_ARRAY] as cv_array
-  [LF_ENUM] as cv_enum
-  [LF_POINTER] as cv_ptr
-  [LF_MEMBER] as cv_member
-  [LF_BITFIELD] as cv_bitfield
-  [T_INT4, T_UINT4, etc.] as cv_basic
-}
+    F1[addDWARFBasicType]
+    F2[appendPointerType]
+    F3[addDWARFStructure]
+    F4[addDWARFArray]
+    F5[addDWARFEnum]
+    F6[addFieldMember]
+    F7[addFieldBitfield]
 
-dwarf_base --> cv_basic : addDWARFBasicType()
-dwarf_ptr --> cv_ptr : appendPointerType()
-dwarf_struct --> cv_struct : addDWARFStructure()
-dwarf_class --> cv_class : addDWARFStructure()
-dwarf_union --> cv_union : addDWARFStructure()
-dwarf_array --> cv_array : addDWARFArray()
-dwarf_enum --> cv_enum : addDWARFEnum()
-dwarf_member --> cv_member : addFieldMember()
-dwarf_member --> cv_bitfield : addFieldBitfield()\n(when bit_size > 0)
-
-note right of cv_bitfield
-  **Bitfield Handling**
-  Creates LF_BITFIELD type with:
-  - base_type: underlying type
-  - nbits: bit width
-  - bitoff: bit offset from LSB
-end note
-
-@enduml
+    DW1 --> F1
+    F1 --> CV1
+    DW2 --> F2
+    F2 --> CV2
+    DW3 --> F3
+    F3 --> CV3
+    DW4 --> F3
+    DW5 --> F3
+    F3 --> CV4
+    F3 --> CV5
+    DW6 --> F4
+    F4 --> CV6
+    DW7 --> F5
+    F5 --> CV7
+    DW8 --> F6
+    F6 --> CV8
+    DW8 -->|bit_size > 0| F7
+    F7 --> CV9
 ```
 
 ### Type Mapping Table
@@ -384,46 +487,6 @@ Bitfields are structure members that occupy a specific number of bits within a s
 
 ### DWARF Bitfield Attributes
 
-```plantuml
-@startuml
-!theme plain
-
-title DWARF Bitfield Attribute Storage
-
-class DWARF_InfoData {
-  .. Bitfield Attributes ..
-  +unsigned int **bit_size** = 0
-  +unsigned int **bit_offset** = 0
-  +unsigned int **data_bit_offset** = 0
-
-  .. Other Attributes ..
-  +byte* type
-  +const char* name
-  +DWARF_Attribute member_location
-  +unsigned int accessibility
-}
-
-note right of DWARF_InfoData::bit_size
-  **DW_AT_bit_size**
-  Size of bitfield in bits
-  (0 means not a bitfield)
-end note
-
-note right of DWARF_InfoData::bit_offset
-  **DW_AT_bit_offset** (DWARF2/3)
-  Offset from MSB of storage unit
-  Needs conversion for little-endian
-end note
-
-note right of DWARF_InfoData::data_bit_offset
-  **DW_AT_data_bit_offset** (DWARF4/5)
-  Absolute offset from structure start
-  Already in LSB format
-end note
-
-@enduml
-```
-
 **File:** `src/readDwarf.h:257-259`
 
 Three attributes define a bitfield:
@@ -445,43 +508,6 @@ Three attributes define a bitfield:
    - Bit offset within byte: `data_bit_offset % 8`
 
 ### CodeView Bitfield Type
-
-```plantuml
-@startuml
-!theme plain
-
-title CodeView LF_BITFIELD Type Structure
-
-class codeview_type {
-  +unsigned short len
-  +unsigned short id = LF_BITFIELD_V2
-}
-
-class bitfield_v2 {
-  +int type
-  +unsigned char nbits
-  +unsigned char bitoff
-}
-
-codeview_type *-- bitfield_v2
-
-note right of bitfield_v2::type
-  **type**: Base type index
-  (e.g., T_INT4, T_UINT4)
-end note
-
-note right of bitfield_v2::nbits
-  **nbits**: Number of bits
-  in the bitfield
-end note
-
-note right of bitfield_v2::bitoff
-  **bitoff**: Bit offset from
-  LSB of the storage unit
-end note
-
-@enduml
-```
 
 **File:** `src/mscvpdb.h` (CodeView type definitions)
 
@@ -553,192 +579,377 @@ if (id.bit_size > 0) {
 #### appendBitfieldType()
 **File:** `src/cv2pdb.cpp:821-843`
 
-Creates an `LF_BITFIELD` type record:
+Creates an `LF_BITFIELD` type record in the PDB format.
+
+**Purpose:** Defines a bitfield type that specifies how many bits are used and where they're located within a storage unit.
 
 ```cpp
 int CV2PDB::appendBitfieldType(int base_type, int bit_offset, int bit_size)
 {
-    checkDWARFTypeAlloc(100);
+```
 
-    codeview_type* bftype = (codeview_type*)(dwarfTypes + cbDwarfTypes);
+**Parameters:**
+- `base_type`: The underlying integer type (e.g., T_INT4, T_UINT4)
+- `bit_offset`: Bit position within the storage unit (0-based from LSB)
+- `bit_size`: Number of bits in the bitfield
+- **Returns:** The new type ID assigned to this bitfield type
+
+---
+
+```cpp
+    checkUserTypeAlloc(12);
+```
+
+**Buffer Safety Check:**
+- Ensures at least 12 bytes free in `userTypes` buffer
+- **Why 12 bytes?** LF_BITFIELD_V2 structure (10 bytes) + padding (2 bytes)
+- If insufficient space, reallocates buffer to larger size
+
+---
+
+```cpp
+    codeview_reftype* bftype = (codeview_reftype*)(userTypes + cbUserTypes);
+```
+
+**Get Write Position:**
+- `userTypes`: Base address of the type buffer (byte array)
+- `cbUserTypes`: Current bytes used in buffer
+- `userTypes + cbUserTypes`: Pointer arithmetic → next free position
+- **Result:** `bftype` points to where we'll write the new type record
+
+**Visual:**
+```
+userTypes buffer:
+┌─────────────────────────────────────────┐
+│ [existing types...] │ FREE SPACE        │
+└─────────────────────────────────────────┘
+                      ↑
+                      bftype (userTypes + cbUserTypes)
+```
+
+---
+
+```cpp
+    bftype->bitfield_v2.len = 10;  // Size of structure minus 2 for the len field
+```
+
+**Set Length Field:**
+- Every CodeView type record starts with 2-byte length field
+- **Value 10:** Total size (12 bytes) - len field itself (2 bytes) = 10
+- **Structure layout:**
+  ```
+  Offset  Size  Field
+  0       2     len (= 10)
+  2       2     id (= LF_BITFIELD_V2)
+  4       4     type (base type)
+  8       1     nbits (bit size)
+  9       1     bitoff (bit offset)
+  10      2     padding
+  ```
+
+---
+
+```cpp
     bftype->bitfield_v2.id = LF_BITFIELD_V2;
+```
+
+**Set Type Kind:**
+- `LF_BITFIELD_V2`: CodeView constant (0x1205) identifying this as bitfield type
+- PDB readers use this to know how to interpret the structure
+
+---
+
+```cpp
     bftype->bitfield_v2.type = translateType(base_type);
+```
+
+**Set Base Type:**
+- `translateType()`: Converts DWARF type ID → CodeView type ID
+- Example: DWARF type 0x1234 → CodeView T_UINT4 (0x75)
+- Tells the debugger what underlying type (int, unsigned int, etc.)
+
+---
+
+```cpp
     bftype->bitfield_v2.nbits = bit_size;
+```
+
+**Set Bit Count:**
+- Number of bits this bitfield occupies
+- Example: For `unsigned int x : 5;`, this is 5
+
+---
+
+```cpp
     bftype->bitfield_v2.bitoff = bit_offset;
+```
 
-    int len = sizeof(bftype->bitfield_v2);
-    bftype->bitfield_v2.len = len - 2;
-    cbDwarfTypes += len;
+**Set Bit Offset:**
+- Starting bit position within storage unit (LSB = 0)
+- Example: Bitfield at bit 3 → this is 3
+- **LSB offset:** Already converted from DWARF's MSB format if needed
 
-    return nextDwarfType++;  // Return new type ID
+---
+
+```cpp
+    int bitfield_type_index = nextUserType++;
+```
+
+**Assign Type ID:**
+- `nextUserType`: Global counter starting at 0x1000 (BASE_USER_TYPE)
+- **Post-increment:** Returns current value, then increments
+  - If `nextUserType = 0x1005`:
+    - `bitfield_type_index = 0x1005`
+    - `nextUserType` becomes 0x1006
+- Each bitfield type gets unique ID for referencing
+
+---
+
+```cpp
+    // Add padding to make total size 12 bytes
+    unsigned char* p = (unsigned char*)(userTypes + cbUserTypes);
+    p[10] = 0xf2;  // Padding byte
+    p[11] = 0xf1;  // Padding byte
+```
+
+**Add Padding:**
+- CodeView uses special padding values:
+  - `0xf1` = 1 byte of padding
+  - `0xf2` = 2 bytes of padding
+  - `0xf3` = 3 bytes of padding
+- **Why?** PDB format requires 4-byte alignment
+- **Math:** 10 bytes (structure) + 2 bytes (padding) = 12 (divisible by 4)
+
+**Memory layout:**
+```
+Offset  Value           Meaning
+0-1     0A 00           len = 10
+2-3     05 12           id = LF_BITFIELD_V2 (0x1205)
+4-7     75 00 00 00     type = T_UINT4 (0x0075)
+8       03              nbits = 3
+9       05              bitoff = 5
+10      F2              padding
+11      F1              padding
+```
+
+---
+
+```cpp
+    cbUserTypes += 12;
+```
+
+**Update Buffer Counter:**
+- Marks 12 bytes as "used" in buffer
+- Next type will be written at new position
+
+**Visual after update:**
+```
+userTypes buffer:
+┌──────────────────────────────────────────────────┐
+│ [existing][new bitfield type 12 bytes]│ FREE    │
+└──────────────────────────────────────────────────┘
+                                         ↑
+                                         cbUserTypes
+```
+
+---
+
+```cpp
+    return bitfield_type_index;
 }
 ```
+
+**Return Type ID:**
+- Caller needs this ID to reference the bitfield type
+- Used by `addFieldBitfield()` when creating `LF_MEMBER` field
+
+---
 
 #### addFieldBitfield()
 **File:** `src/cv2pdb.cpp:845-865`
 
-Creates an `LF_MEMBER` field that references the bitfield type:
+Creates an `LF_MEMBER` field entry that references a bitfield type.
+
+**Purpose:** Adds a structure member field that points to the bitfield type definition.
 
 ```cpp
 int CV2PDB::addFieldBitfield(codeview_fieldtype* dfieldtype, int attr,
                              int bit_offset, int bit_size,
                              int base_type, const char* name)
 {
-    // Create the LF_BITFIELD type
+```
+
+**Parameters:**
+- `dfieldtype`: Pointer to where to write field record
+- `attr`: Access attribute (1=private, 2=protected, 3=public)
+- `bit_offset`: Bit offset within storage unit
+- `bit_size`: Number of bits
+- `base_type`: Underlying integer type
+- `name`: Field name (e.g., "flags")
+- **Returns:** Number of bytes written (including padding)
+
+---
+
+```cpp
+    // Create the bitfield type
     int bitfield_type_index = appendBitfieldType(base_type, bit_offset, bit_size);
+```
 
-    // Now create LF_MEMBER with this bitfield type
-    // Calculate byte offset (bitfields in same byte share offset)
-    int byte_offset = bit_offset / 8;
+**Create LF_BITFIELD Type:**
+- Calls `appendBitfieldType()` explained above
+- Writes `LF_BITFIELD` type record to buffer
+- Increments `cbUserTypes`
+- **Returns:** Type ID of newly created bitfield (e.g., 0x1005)
 
-    return addFieldMember(dfieldtype, attr, byte_offset,
-                         bitfield_type_index, name);
+---
+
+```cpp
+    // Now add the member to the field list, referencing the bitfield type
+    dfieldtype->member_v2.id = v3 ? LF_MEMBER_V3 : LF_MEMBER_V2;
+```
+
+**Set Member Kind:**
+- `v3`: Global flag for PDB version
+- `LF_MEMBER_V2` (0x1406): Structure member type
+- Tells debugger this is a struct member
+
+---
+
+```cpp
+    dfieldtype->member_v2.attribute = attr;
+```
+
+**Set Access Attribute:**
+- 1 = private, 2 = protected, 3 = public
+- Example: `public: unsigned int x : 3;` → attr = 3
+
+---
+
+```cpp
+    dfieldtype->member_v2.type = bitfield_type_index;
+```
+
+**Link to Bitfield Type:**
+- References the type ID from `appendBitfieldType()`
+- Creates relationship:
+  ```
+  LF_MEMBER "flags"       LF_BITFIELD (0x1005)
+  ├─ type = 0x1005  ─────→ ├─ base_type = T_UINT4
+  ├─ offset = 0            ├─ nbits = 3
+  └─ name = "flags"        └─ bitoff = 5
+  ```
+
+---
+
+```cpp
+    // For bitfields, all fields in same storage unit have offset = 0
+    int byte_offset = 0;
+```
+
+**Set Byte Offset:**
+- Bitfields in same storage unit share byte offset 0
+- Bit position encoded in `LF_BITFIELD` type (bitoff field)
+- Example:
+  ```c
+  struct {
+      unsigned int a : 3;  // offset = 0, bitoff = 0
+      unsigned int b : 5;  // offset = 0, bitoff = 3 (same byte!)
+  };
+  ```
+
+---
+
+```cpp
+    int len = write_numeric_leaf(byte_offset, &(dfieldtype->member_v2.offset)) - 2;
+```
+
+**Write Offset as Numeric Leaf:**
+- CodeView encodes numbers in variable-length format:
+  - Small (< 0x8000): 2 bytes
+  - Large: 2-byte prefix + 4-byte value
+- **Returns:** Bytes written including 2-byte header
+- `- 2`: Subtract header to get just offset size
+
+---
+
+```cpp
+    len += cstrcpy_v(v3, (BYTE*)(&dfieldtype->member_v2 + 1) + len, name);
+```
+
+**Copy Field Name:**
+- `&dfieldtype->member_v2 + 1`: After structure
+- `+ len`: Skip past numeric leaf
+- Copies null-terminated string
+- **Returns:** String length + null terminator
+- `len +=`: Add to running total
+
+---
+
+```cpp
+    len += sizeof(dfieldtype->member_v2);
+```
+
+**Add Structure Size:**
+- Typically 8 bytes for `member_v2` structure
+- `len` now contains:
+  - Structure size (8 bytes)
+  - Numeric leaf (2 bytes)
+  - Name string (strlen + 1)
+
+---
+
+```cpp
+    // Pad to 4-byte boundary
+    unsigned char* p = (unsigned char*) dfieldtype;
+    for (; len & 3; len++)
+        p[len] = 0xf4 - (len & 3);
+```
+
+**Add Padding:**
+- **Loop condition:** `len & 3` (same as `len % 4`)
+  - 0 if aligned (divisible by 4)
+  - 1, 2, or 3 if not aligned
+- **Padding values:**
+  - `len % 4 == 1`: write `0xf3` (3 more bytes needed)
+  - `len % 4 == 2`: write `0xf2` (2 more bytes needed)
+  - `len % 4 == 3`: write `0xf1` (1 more byte needed)
+- **Example:**
+  ```
+  len = 14 (not aligned)
+  Iteration 1: 14 & 3 = 2, p[14] = 0xf2, len = 15
+  Iteration 2: 15 & 3 = 3, p[15] = 0xf1, len = 16
+  Loop exits: 16 & 3 = 0 (aligned)
+  ```
+
+---
+
+```cpp
+    return len;
 }
+```
+
+**Return Total Length:**
+- **Why return instead of updating counter internally?**
+  - **Separation of concerns:** Function writes data, caller manages buffer
+  - **Flexibility:** Can be used with different buffers (dwarfTypes or userTypes)
+  - **Caller decides:** `cbDwarfTypes += addFieldBitfield(...)`
+- Returns total bytes written including padding
+
+**Usage by caller:**
+```cpp
+int bytesWritten = addFieldBitfield(dfieldtype, attr, ...);
+cbDwarfTypes += bytesWritten;  // Caller updates counter
 ```
 
 ### Bitfield Conversion Sequence
 
-```plantuml
-@startuml
-!theme plain
-
-title Bitfield Conversion Sequence
-
-participant "DIECursor" as cursor
-participant "CV2PDB" as cv2pdb
-participant "DWARF_InfoData" as dwarf
-participant "PDB Types" as pdb
-
-activate cursor
-cursor -> dwarf : readNext(id)
-activate dwarf
-
-dwarf -> dwarf : Parse DW_AT_bit_size
-dwarf -> dwarf : Parse DW_AT_bit_offset or\nDW_AT_data_bit_offset
-dwarf -> dwarf : Parse DW_AT_type
-
-cursor <-- dwarf : id populated
-deactivate dwarf
-
-cursor -> cv2pdb : addDWARFFields(structid, cursor, ...)
-activate cv2pdb
-
-cv2pdb -> cv2pdb : Check if id.bit_size > 0
-
-alt DWARF4/5 (data_bit_offset present)
-  cv2pdb -> cv2pdb : field_offset = baseoff + (data_bit_offset / 8)
-  cv2pdb -> cv2pdb : bit_offset_in_unit = data_bit_offset % 8
-else DWARF2/3 (bit_offset present)
-  cv2pdb -> cv2pdb : Get storage unit size from type
-  cv2pdb -> cv2pdb : bit_offset_in_unit = \nstorage_bits - bit_offset - bit_size
-  note right
-    Convert MSB offset to LSB offset
-    for little-endian systems
-  end note
-else No offset specified
-  cv2pdb -> cv2pdb : bit_offset_in_unit = cumulative_bit_offset
-  note right
-    Track consecutive bitfields
-    in same storage unit
-  end note
-end
-
-cv2pdb -> cv2pdb : addFieldBitfield(attr, bit_offset_in_unit,\nbit_size, base_type, name)
-activate cv2pdb
-
-cv2pdb -> cv2pdb : appendBitfieldType(base_type,\nbit_offset, bit_size)
-activate cv2pdb
-
-cv2pdb -> pdb : Create LF_BITFIELD_V2 type
-activate pdb
-pdb --> cv2pdb : bitfield_type_id
-deactivate pdb
-
-cv2pdb <-- cv2pdb : bitfield_type_id
-deactivate cv2pdb
-
-cv2pdb -> pdb : Create LF_MEMBER with bitfield_type_id
-activate pdb
-pdb --> cv2pdb : member size
-deactivate pdb
-
-cv2pdb <-- cv2pdb : member size
-deactivate cv2pdb
-
-cv2pdb -> cv2pdb : Update cumulative_bit_offset
-cv2pdb -> cv2pdb : Update last_bitfield_byte_offset
-
-cursor <-- cv2pdb : field added
-deactivate cv2pdb
-
-@enduml
-```
+*[Conversion process is detailed in the implementation section above]*
 
 ## Key Functions
 
 ### Type Creation and Management
 
-```plantuml
-@startuml
-!theme plain
-
-title Type Creation and Management
-
-class "Type Management" as TypeMgmt {
-  .. Storage Areas ..
-  +globalTypes: Global type pool (from CV)
-  +userTypes: User-defined types (CV conversion)
-  +dwarfTypes: DWARF-converted types
-
-  .. Type ID Management ..
-  +nextUserType: Next available user type ID (>= 0x1000)
-  +nextDwarfType: Next available DWARF type ID (>= 0x1000)
-
-  .. Lookup Maps ..
-  +mapEntryPtrToTypeID: DWARF ptr -> PDB type ID
-  +pointerTypes: Cache for pointer types
-}
-
-class "Type Conversion" as TypeConv {
-  +**getTypeByDWARFPtr(ptr)**
-  Main entry point for type lookup/creation
-
-  +**addDWARFBasicType(name, encoding, size)**
-  Convert base types (int, char, float, etc.)
-
-  +**addDWARFStructure(id, cursor)**
-  Convert struct/class/union types
-
-  +**addDWARFArray(id, cursor)**
-  Convert array types
-
-  +**addDWARFEnum(id, cursor)**
-  Convert enumeration types
-
-  +**appendPointerType(pointedType, attr)**
-  Create pointer types
-
-  +**appendBitfieldType(base, offset, size)**
-  Create bitfield types
-}
-
-class "Field Processing" as FieldProc {
-  +**addDWARFFields(structid, cursor, off)**
-  Process all fields in struct/class/union
-
-  +**addFieldMember(dfieldtype, attr, offset, type, name)**
-  Add regular field
-
-  +**addFieldBitfield(dfieldtype, attr, bit_offset, bit_size, base_type, name)**
-  Add bitfield with proper LF_BITFIELD type
-}
-
-TypeMgmt --> TypeConv : provides storage
-TypeConv --> FieldProc : uses for structures
-FieldProc --> TypeConv : calls for nested types
-
-@enduml
-```
+*[Type management is shown in the Type Conversion diagram above]*
 
 ### Function Reference
 
@@ -793,29 +1004,432 @@ int CV2PDB::addDWARFStructure(DWARF_InfoData& id, DIECursor cursor)
 #### addDWARFFields()
 **File:** `src/dwarf2pdb.cpp:1063-1199`
 
-Processes all members of a structure, including bitfields.
+Processes all members of a structure, including regular fields and bitfields.
+
+**Purpose:** Main orchestrator that iterates through DWARF structure members and converts them to CodeView field list entries.
 
 ```cpp
 int CV2PDB::addDWARFFields(DWARF_InfoData& structid, DIECursor& cursor,
                           int baseoff, int flStart, bool& hasBackRef)
 {
+```
+
+**Parameters:**
+- `structid`: The parent structure's DWARF information
+- `cursor`: Iterator positioned at first child (structure members)
+- `baseoff`: Base offset for nested structures
+- `flStart`: Starting position of field list in buffer
+- `hasBackRef`: Output parameter indicating if type has forward references
+- **Returns:** Number of fields processed
+
+---
+
+```cpp
     int cumulative_bit_offset = 0;
     int last_bitfield_byte_offset = -1;
+```
 
+**Initialize Bitfield Tracking:**
+- `cumulative_bit_offset`: Tracks next available bit position for consecutive bitfields
+  - Example: If first bitfield uses bits 0-2, this becomes 3
+  - Used when DWARF doesn't specify explicit bit offsets
+- `last_bitfield_byte_offset`: Tracks which byte the previous bitfield was in
+  - Used to detect when we move to a new storage unit
+  - Initialized to -1 (invalid) to indicate "no previous bitfield"
+
+**Example progression:**
+```c
+struct {
+    unsigned int a : 3;  // cumulative = 3, last_byte = 0
+    unsigned int b : 5;  // cumulative = 8, last_byte = 0 (same)
+    unsigned int c : 2;  // cumulative = 2, last_byte = 1 (new byte, reset)
+};
+```
+
+---
+
+```cpp
     DWARF_InfoData id;
     while (cursor.readNext(&id, true)) {
+```
+
+**Loop Through Structure Members:**
+- `cursor.readNext(&id, true)`: Read next DWARF DIE (Debug Information Entry)
+  - `&id`: Fills structure with member information
+  - `true`: Stop at null entry (end of children)
+- Loop continues until all members processed
+
+---
+
+```cpp
         if (id.tag == DW_TAG_member) {
+```
+
+**Check if This is a Member Field:**
+- `DW_TAG_member`: DWARF tag for structure/class member
+- Other tags (not processed here):
+  - `DW_TAG_inheritance`: Base class
+  - `DW_TAG_subprogram`: Member function
+
+---
+
+```cpp
             if (id.bit_size > 0) {
-                // Handle bitfield (see Bitfield Conversion Algorithm)
+```
+
+**Detect Bitfield:**
+- `id.bit_size`: DWARF attribute `DW_AT_bit_size`
+  - 0 for regular fields
+  - > 0 for bitfields (indicates number of bits)
+- Example: For `unsigned int flags : 3;`, `id.bit_size = 3`
+
+---
+
+### Bitfield Processing Section
+
+```cpp
+                int bit_offset_in_unit = 0;
+```
+
+**Initialize Bit Offset:**
+- Will be calculated based on DWARF version and available attributes
+- This is the offset from LSB (Least Significant Bit) of storage unit
+
+---
+
+```cpp
+                // Check if this is a new storage unit or continuation
+                if (field_offset != last_bitfield_byte_offset) {
+                    cumulative_bit_offset = 0;
+                    last_bitfield_byte_offset = field_offset;
+                }
+```
+
+**Detect Storage Unit Boundaries:**
+
+**Purpose:** Determine if bitfield is in new byte or continues in same byte
+
+**Logic:**
+- `field_offset`: Byte offset of current bitfield
+- `last_bitfield_byte_offset`: Byte offset of previous bitfield
+- **If different:** New storage unit detected
+  - Reset `cumulative_bit_offset = 0` (start from bit 0)
+  - Save current offset for next comparison
+- **If same:** Same storage unit
+  - Keep `cumulative_bit_offset` unchanged
+
+**Example:**
+```c
+struct {
+    unsigned int a : 3;  // field_offset = 0, NEW (0 != -1)
+    unsigned int b : 5;  // field_offset = 0, SAME (0 == 0)
+    unsigned int c : 4;  // field_offset = 1, NEW (1 != 0)
+};
+```
+
+---
+
+```cpp
+                if (id.data_bit_offset != (unsigned int)-1) {
+                    // DWARF4/5: data_bit_offset is absolute offset from beginning of struct
+                    // Note: data_bit_offset can be 0 for first bitfield, so we check != -1
+                    field_offset = baseoff + (id.data_bit_offset / 8);
+                    bit_offset_in_unit = id.data_bit_offset % 8;
+                }
+```
+
+**DWARF4/5 Handling (Modern Format):**
+
+**`id.data_bit_offset`:** DWARF attribute `DW_AT_data_bit_offset`
+- Absolute bit offset from start of structure
+- Only present in DWARF 4 and later
+- Initialized to `(unsigned int)-1` if not present
+
+**Why `!= (unsigned int)-1` instead of `> 0`?**
+- **BUG FIX:** First bitfield can legitimately have offset 0
+- **Old code:** Used `> 0`, which FAILED for first bitfield
+- **Solution:** Use sentinel value -1 for "not set"
+
+**Calculations:**
+- **`field_offset = baseoff + (id.data_bit_offset / 8)`**
+  - Division by 8: Which byte contains the bitfield
+  - `baseoff`: Base offset for nested structs (usually 0)
+  - Result: Absolute byte offset
+
+- **`bit_offset_in_unit = id.data_bit_offset % 8`**
+  - Modulo 8: Which bit within that byte
+  - Already in LSB format (bit 0 = least significant)
+
+**Example:**
+```c
+struct {
+    unsigned int a : 3;  // data_bit_offset = 0  → byte 0, bit 0
+    unsigned int b : 5;  // data_bit_offset = 3  → byte 0, bit 3
+    unsigned int c : 24; // data_bit_offset = 8  → byte 1, bit 0
+};
+
+Calculations:
+a: field_offset = 0 + (0/8) = 0, bit_offset = 0%8 = 0
+b: field_offset = 0 + (3/8) = 0, bit_offset = 3%8 = 3
+c: field_offset = 0 + (8/8) = 1, bit_offset = 8%8 = 0
+```
+
+---
+
+```cpp
+                else if (id.bit_offset >= 0) {
+                    // DWARF2/3: bit_offset is from MSB (Most Significant Bit)
+                    // Need to convert to LSB offset
+                    const DWARF_InfoData* typeEntry = findEntryByPtr(id.type);
+                    if (typeEntry && typeEntry->byte_size > 0) {
+                        int storage_size_bits = typeEntry->byte_size * 8;
+                        bit_offset_in_unit = storage_size_bits - id.bit_offset - id.bit_size;
+                    }
+                }
+```
+
+**DWARF2/3 Handling (Older Format):**
+
+**`id.bit_offset`:** DWARF attribute `DW_AT_bit_offset`
+- Offset from **MSB** (Most Significant Bit) - Big Endian convention
+- Only in DWARF 2/3 (deprecated in DWARF 4)
+- Must convert to LSB for little-endian PDB
+
+**Conversion Algorithm:**
+1. **`findEntryByPtr(id.type)`**: Look up base type definition
+   - Example: Find `unsigned int` type
+
+2. **`typeEntry->byte_size`**: Get storage unit size
+   - Example: `unsigned int` = 4 bytes
+
+3. **`storage_size_bits = typeEntry->byte_size * 8`**: Convert to bits
+   - Example: 4 × 8 = 32 bits
+
+4. **`bit_offset_in_unit = storage_size_bits - id.bit_offset - id.bit_size`**
+   - Formula: `LSB_offset = total_bits - MSB_offset - bit_size`
+
+**Example Conversion:**
+```c
+// 32-bit unsigned int, bitfield using bits 0-2 from LSB
+unsigned int x : 3;
+
+DWARF2/3 (MSB encoding):
+  bit_offset = 29     (from bit 31 MSB, counting down)
+  bit_size = 3
+
+Conversion:
+  LSB_offset = 32 - 29 - 3 = 0  ✓
+
+Visualization:
+MSB                                           LSB
+31 30 29 28 27 ... 4  3  2  1  0
+|  |  x  x  x  ... |  |  |  |  |
+      ↑
+      bit_offset=29 (from MSB) points to same field as
+                               ↑
+                               bit_offset=0 (from LSB)
+```
+
+---
+
+```cpp
+                else {
+                    // No offset specified, use cumulative offset for consecutive bitfields
+                    bit_offset_in_unit = cumulative_bit_offset;
+                }
+```
+
+**Fallback for Unspecified Offset:**
+
+**When this happens:**
+- Neither `data_bit_offset` nor `bit_offset` is set
+- Some compilers don't emit explicit offsets
+- Assumes bitfields are packed consecutively
+
+**Logic:**
+- Use cumulative offset from previous bitfields
+- Automatically packs bitfields sequentially
+
+**Example:**
+```c
+struct {
+    unsigned int a : 3;  // bit_offset_in_unit = 0 (default)
+    unsigned int b : 5;  // bit_offset_in_unit = 3 (cumulative)
+    unsigned int c : 2;  // bit_offset_in_unit = 8 (cumulative)
+};
+```
+
+---
+
+```cpp
+                // Convert DWARF accessibility to CodeView attribute:
+                // DWARF: public=1, protected=2, private=3
+                // CodeView: private=1, protected=2, public=3
+                int attr = 3; // default to public
+                if (id.accessibility == 1) attr = 3;  // DW_ACCESS_public -> CV public
+                else if (id.accessibility == 2) attr = 2;  // DW_ACCESS_protected -> CV protected
+                else if (id.accessibility == 3) attr = 1;  // DW_ACCESS_private -> CV private
+```
+
+**Access Modifier Conversion:**
+
+**DWARF encoding:**
+- `DW_AT_accessibility` attribute
+- 1 = public, 2 = protected, 3 = private
+- Default (not specified) = public
+
+**CodeView encoding:**
+- 1 = private, 2 = protected, 3 = public
+- **Note:** Values are REVERSED!
+
+**Conversion table:**
+| DWARF | C++ Keyword | CodeView |
+|-------|-------------|----------|
+| 1     | public      | 3        |
+| 2     | protected   | 2        |
+| 3     | private     | 1        |
+| (none)| public      | 3        |
+
+**Example:**
+```cpp
+class MyClass {
+private:
+    unsigned int flags : 8;  // id.accessibility = 3 → attr = 1
+protected:
+    unsigned int state : 4;  // id.accessibility = 2 → attr = 2
+public:
+    unsigned int count : 4;  // id.accessibility = 1 → attr = 3
+};
+```
+
+---
+
+```cpp
+                cbDwarfTypes += addFieldBitfield(dfieldtype, attr, bit_offset_in_unit,
+                                                id.bit_size, type_to_use, id.name);
+```
+
+**Create Bitfield Member:**
+
+**What happens (in order):**
+
+1. **Call `addFieldBitfield()`** with:
+   - `dfieldtype`: Pointer to write position in field list buffer
+   - `attr`: Access attribute (1=private, 2=protected, 3=public)
+   - `bit_offset_in_unit`: Bit offset from LSB (calculated above)
+   - `id.bit_size`: Number of bits
+   - `type_to_use`: Converted base type ID
+   - `id.name`: Field name (e.g., "flags")
+
+2. **Inside `addFieldBitfield()`:**
+   - Calls `appendBitfieldType()` → creates `LF_BITFIELD` type in `userTypes` buffer
+   - Creates `LF_MEMBER` field in `dwarfTypes` buffer
+   - Returns total bytes written
+
+3. **Update buffer position:**
+   - `cbDwarfTypes += bytesWritten`
+   - Marks those bytes as "used"
+   - Next field writes after this one
+
+**Data flow:**
+```
+addFieldBitfield()
+    ├─→ appendBitfieldType()
+    │   ├─ Writes to userTypes buffer
+    │   ├─ Updates cbUserTypes
+    │   ├─ Increments nextUserType
+    │   └─ Returns type ID (e.g., 0x1005)
+    │
+    ├─ Creates LF_MEMBER
+    │   ├─ References type ID from above
+    │   ├─ Writes to dwarfTypes buffer
+    │   └─ Calculates total bytes written
+    │
+    └─→ Returns bytes written
+        └─ Caller updates cbDwarfTypes
+```
+
+---
+
+```cpp
+                // Update cumulative bit offset for next bitfield in same unit
+                cumulative_bit_offset = bit_offset_in_unit + id.bit_size;
+                nfields++;
+```
+
+**Update Tracking Variables:**
+
+**`cumulative_bit_offset = bit_offset_in_unit + id.bit_size`:**
+- Calculates where next bitfield should start
+- Only matters if next bitfield is in same storage unit
+- Example: Bitfield at bit 3 with size 5
+  - `cumulative_bit_offset = 3 + 5 = 8`
+  - Next bitfield in same byte starts at bit 8
+
+**`nfields++`:**
+- Increment field counter
+- Tracks total structure members
+- Returned at end of function
+
+**Example progression:**
+```c
+struct {
+    unsigned int a : 3;  // bit_offset=0, after: cumulative=3, nfields=1
+    unsigned int b : 5;  // bit_offset=3, after: cumulative=8, nfields=2
+    int regular;         // (regular field), nfields=3
+    unsigned int c : 2;  // bit_offset=0, after: cumulative=2, nfields=4
+};
+
+Step by step:
+1. Process 'a': cumulative goes from 0 to 3
+2. Process 'b': same byte, use cumulative=3, then set to 8
+3. Process 'regular': reset tracking (not shown), nfields=3
+4. Process 'c': new byte, cumulative reset to 0, then set to 2
+```
+
+---
+
+### Regular Field Processing
+
+```cpp
             } else {
-                // Regular field
+                // Regular field (not a bitfield)
+                // Reset bitfield tracking for next group
+                last_bitfield_byte_offset = -1;
+                cumulative_bit_offset = 0;
+
+                // Process as regular field
                 addFieldMember(dfieldtype, cv_attr, field_offset,
                               type_to_use, id.name);
             }
+```
+
+**Handle Non-Bitfield Members:**
+- Reset bitfield tracking (next bitfield group starts fresh)
+- Call `addFieldMember()` instead of `addFieldBitfield()`
+- No `LF_BITFIELD` type created, uses type directly
+
+**Difference from bitfield:**
+```
+Bitfield:
+  LF_MEMBER → LF_BITFIELD → T_UINT4
+
+Regular:
+  LF_MEMBER → T_INT4 (direct)
+```
+
+---
+
+```cpp
         }
     }
+    return nfields;
 }
 ```
+
+**End of Function:**
+- Returns total number of fields processed
+- Used by caller to know how many members in structure
 
 #### addDWARFBasicType()
 **File:** `src/dwarf2pdb.cpp`
@@ -842,161 +1456,6 @@ int CV2PDB::addDWARFBasicType(const char* name, int encoding, int byte_size)
 ```
 
 ## Conversion Sequence
-
-Complete end-to-end sequence diagram:
-
-```plantuml
-@startuml
-!theme plain
-
-title Complete DWARF to PDB Conversion Sequence
-
-actor User
-participant Main
-participant CV2PDB
-participant PEImage
-participant DIECursor
-participant "Type System" as Types
-participant "Symbol System" as Symbols
-participant "mspdb.dll" as MSPDB
-
-User -> Main : cv2pdb input.exe output.pdb
-activate Main
-
-Main -> PEImage : loadExe(input.exe)
-activate PEImage
-PEImage -> PEImage : Load PE sections\n(debug_info, debug_abbrev, etc.)
-Main <-- PEImage : success
-deactivate PEImage
-
-Main -> CV2PDB : new CV2PDB(img, debug)
-activate CV2PDB
-Main <-- CV2PDB : cv2pdb instance
-deactivate CV2PDB
-
-Main -> CV2PDB : openPDB(output.pdb)
-activate CV2PDB
-CV2PDB -> MSPDB : CreatePDB()
-activate MSPDB
-CV2PDB <-- MSPDB : pdb
-deactivate MSPDB
-CV2PDB -> MSPDB : CreateDBI()
-activate MSPDB
-CV2PDB <-- MSPDB : dbi
-deactivate MSPDB
-CV2PDB -> MSPDB : OpenTpi("rw")
-activate MSPDB
-CV2PDB <-- MSPDB : tpi
-deactivate MSPDB
-Main <-- CV2PDB : success
-deactivate CV2PDB
-
-' Type mapping phase
-Main -> CV2PDB : createDWARFModules()
-activate CV2PDB
-CV2PDB -> CV2PDB : Read all compilation units
-CV2PDB -> DIECursor : Traverse DWARF tree
-activate DIECursor
-loop For each DIE
-  DIECursor -> DIECursor : readNext(entry)
-  DIECursor -> CV2PDB : Build DWARF_InfoData tree
-end
-CV2PDB <-- DIECursor : Complete tree
-deactivate DIECursor
-CV2PDB -> CV2PDB : mapTypes()
-activate CV2PDB
-CV2PDB -> CV2PDB : createTypes()
-activate CV2PDB
-CV2PDB -> Types : Convert all types
-activate Types
-Types -> Types : addDWARFBasicType()
-Types -> Types : addDWARFStructure()
-Types -> Types : addDWARFArray()
-Types -> Types : addDWARFEnum()
-Types -> Types : appendBitfieldType()
-CV2PDB <-- Types : Type IDs mapped
-deactivate Types
-CV2PDB <-- CV2PDB : Types created
-deactivate CV2PDB
-CV2PDB <-- CV2PDB : Types mapped
-deactivate CV2PDB
-Main <-- CV2PDB : success
-deactivate CV2PDB
-
-' Symbol conversion phase
-Main -> CV2PDB : addDWARFSymbols()
-activate CV2PDB
-CV2PDB -> DIECursor : Traverse tree again
-activate DIECursor
-loop For each function/variable
-  DIECursor -> CV2PDB : Process DW_TAG_subprogram
-  CV2PDB -> Symbols : addDWARFProc()
-  activate Symbols
-  Symbols -> Symbols : Create S_GPROC_V3
-  Symbols -> Symbols : Add parameters
-  Symbols -> Symbols : Add local variables
-  CV2PDB <-- Symbols : Symbol added
-  deactivate Symbols
-
-  DIECursor -> CV2PDB : Process DW_TAG_variable
-  CV2PDB -> Symbols : appendGlobalVar()
-  activate Symbols
-  CV2PDB <-- Symbols : Symbol added
-  deactivate Symbols
-end
-CV2PDB <-- DIECursor : Traversal complete
-deactivate DIECursor
-Main <-- CV2PDB : success
-deactivate CV2PDB
-
-' Line number phase
-Main -> CV2PDB : addDWARFLines()
-activate CV2PDB
-CV2PDB -> PEImage : Read .debug_line section
-activate PEImage
-CV2PDB <-- PEImage : Line number data
-deactivate PEImage
-CV2PDB -> MSPDB : AddLines()
-activate MSPDB
-CV2PDB <-- MSPDB : success
-deactivate MSPDB
-Main <-- CV2PDB : success
-deactivate CV2PDB
-
-' Public symbols phase
-Main -> CV2PDB : addDWARFPublics()
-activate CV2PDB
-CV2PDB -> MSPDB : AddPublic()
-activate MSPDB
-CV2PDB <-- MSPDB : success
-deactivate MSPDB
-Main <-- CV2PDB : success
-deactivate CV2PDB
-
-' Write output
-Main -> CV2PDB : writeDWARFImage(output.exe)
-activate CV2PDB
-CV2PDB -> PEImage : Update debug directory
-activate PEImage
-CV2PDB <-- PEImage : success
-deactivate PEImage
-Main <-- CV2PDB : success
-deactivate CV2PDB
-
-Main -> CV2PDB : cleanup(commit=true)
-activate CV2PDB
-CV2PDB -> MSPDB : Commit()
-activate MSPDB
-CV2PDB <-- MSPDB : success
-deactivate MSPDB
-Main <-- CV2PDB : success
-deactivate CV2PDB
-
-User <-- Main : Conversion complete
-deactivate Main
-
-@enduml
-```
 
 ### Conversion Phases
 
