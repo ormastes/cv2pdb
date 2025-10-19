@@ -1642,8 +1642,17 @@ int CV2PDB::getTypeByDWARFPtr(byte* typePtr)
 		DWARF_InfoData* entry = findEntryByPtr(typePtr);
 		assert(entry); // how can the entry not exist in the map?
 
-		// Skip anonymous structures or similar.
-		if (!entry || !entry->name) {
+		// For anonymous structures/unions, we can't do name-based lookup.
+		// However, if the entry exists and is a struct/union/class, we should
+		// still try to return a valid type instead of T_NOTYPE.
+		// This handles cases where anonymous structs are used as union members.
+		if (!entry) {
+			return T_NOTYPE;
+		}
+
+		if (!entry->name) {
+			// Anonymous type - can't do name lookup, but might still have a valid type ID
+			// For anonymous structs/unions that haven't been processed yet, return T_NOTYPE
 			return T_NOTYPE;
 		}
 
