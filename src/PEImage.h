@@ -148,7 +148,13 @@ public:
 	void initDWARFSegments();
 	bool relocateDebugLineInfo(unsigned int img_base);
 
-	bool hasDWARF() const { return debug_line.isPresent(); }
+	bool hasDWARF() const {
+		// Check for any DWARF section presence
+		return debug_info.isPresent() ||
+		       debug_line.isPresent() ||
+		       debug_abbrev.isPresent() ||
+		       debug_str.isPresent();
+	}
 	bool hasDebugLink() const { return gnu_debuglink.isPresent(); }
 	bool isX64() const { return x64; }
 	bool isDBG() const { return dbgfile; }

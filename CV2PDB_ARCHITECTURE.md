@@ -1777,3 +1777,200 @@ The bitfield implementation now correctly handles:
 5. **Storage unit detection** - Properly grouping bitfields sharing the same byte offset
 
 These changes ensure correct bitfield debugging in Visual Studio for code compiled with GCC/MinGW across different DWARF versions.
+
+## DWARF-5 Support (2025-10)
+
+### Bug #4: PE Section Name Truncation Causing DWARF-5 Failures
+
+**Problem:**
+DWARF-5 debug sections were not being loaded correctly, causing cv2pdb to report "no debug entries found" and either fail or crash when processing DWARF-5 executables.
+
+**Root Cause:**
+The PE format limits section names to 8 characters, causing multiple DWARF sections to have identical truncated names:
+- `.debug_abbrev` → `.debug_a`
+- `.debug_addr` → `.debug_a`
+- `.debug_aranges` → `.debug_a`
+
+When cv2pdb's `initDWARFSegments()` function encountered multiple sections with the same truncated name, it would overwrite the first match with subsequent ones, leading to:
+- Wrong section content being loaded (e.g., `.debug_addr` content loaded as `.debug_abbrev`)
+- Null pointer dereferences when expected sections were missing
+- Segmentation faults during DWARF parsing
+
+**File:** `src/PEImage.cpp:476-516`
+
+### DWARF-5 Section Disambiguation Strategy
+
+To resolve the section name ambiguity, we implement a multi-pronged approach:
+
+#### 1. First-Match Priority (Implemented)
+
+**Concept:** For truncated section names, only assign to the DWARF section if it hasn't been loaded yet.
+
+**Implementation:**
+```cpp
+// src/PEImage.cpp:initDWARFSegments()
+else if (strlen(name) == 8 && !strncmp(name, sec_desc->name, 8)) {
+    // For truncated names, only assign if the section isn't already present
+    // This prevents overwriting the first occurrence with subsequent ones
+    PESection& peSec = this->*(sec_desc->pSec);
+    if (!peSec.isPresent()) {
+        matches = true;
+    }
+}
+```
+
+**Rationale:**
+- PE linkers typically place sections in a predictable order
+- `.debug_abbrev` usually comes before `.debug_addr`
+- This simple fix prevents overwriting but doesn't guarantee correctness
+
+#### 2. DWARF-5 Header Parsing (Implemented)
+
+**Concept:** Parse DWARF-5 section headers to find actual data start positions.
+
+**Implementation:**
+```cpp
+// src/readDwarf.cpp:79-106
+if (version == 5) {
+    // Parse debug_str_offsets header
+    if (img.debug_str_offsets.isPresent() && img.debug_str_offsets.length > 0) {
+        byte* p = img.debug_str_offsets.startByte();
+        uint32_t length = RD4(p);
+        uint16_t version = RD2(p);
+        uint16_t padding = RD2(p);
+        str_offset_base = p;  // After header, actual offsets start
+    }
+    // Parse debug_addr header
+    if (img.debug_addr.isPresent() && img.debug_addr.length > 0) {
+        byte* p = img.debug_addr.startByte();
+        uint32_t length = RD4(p);
+        uint16_t version = RD2(p);
+        uint8_t addr_size = *p++;
+        uint8_t seg_size = *p++;
+        addr_base = p;  // After header, actual addresses start
+    }
+}
+```
+
+**Benefits:**
+- Sets default base addresses for indirect references
+- Avoids crashes from null base pointers
+- Supports DWARF-5's indirect string and address encoding
+
+#### 3. Content-Based Section Identification (Proposed - Not Yet Implemented)
+
+**Concept:** Examine section content to identify which DWARF section it actually is.
+
+**Algorithm:**
+```cpp
+enum DwarfSectionType {
+    DWARF_UNKNOWN,
+    DWARF_ABBREV,    // Starts with abbreviation code (LEB128)
+    DWARF_ADDR,      // Starts with length + version header
+    DWARF_ARANGES    // Starts with specific header format
+};
+
+DwarfSectionType identifyDwarfSection(byte* data, size_t len) {
+    if (len < 8) return DWARF_UNKNOWN;
+
+    // Check for .debug_addr header (DWARF-5)
+    uint32_t length = *(uint32_t*)data;
+    uint16_t version = *(uint16_t*)(data + 4);
+    if (version == 5 && length < len) {
+        uint8_t addr_size = data[6];
+        uint8_t seg_size = data[7];
+        if (addr_size == 4 || addr_size == 8) {
+            return DWARF_ADDR;
+        }
+    }
+
+    // Check for .debug_abbrev (starts with abbreviation entries)
+    // First entry: code (LEB128), tag (LEB128), has_children (byte)
+    byte* p = data;
+    uint32_t code = LEB128(p);
+    if (code > 0 && code < 1000) {  // Reasonable abbrev code
+        uint32_t tag = LEB128(p);
+        if (tag >= DW_TAG_array_type && tag <= DW_TAG_volatile_type) {
+            return DWARF_ABBREV;
+        }
+    }
+
+    // Check for .debug_aranges
+    // Has specific header: length, version, CU offset, addr_size, seg_size
+    if (*(uint16_t*)(data + 4) == 2) {  // Version 2 is common
+        return DWARF_ARANGES;
+    }
+
+    return DWARF_UNKNOWN;
+}
+```
+
+**Implementation Plan:**
+1. When encountering a truncated section name (8 chars)
+2. Load section content temporarily
+3. Call `identifyDwarfSection()` to determine actual type
+4. Assign to correct `PESection` member based on identification
+
+**Benefits:**
+- Correctly handles any section ordering
+- Works even if linker reorders sections
+- Robust against future DWARF versions
+
+#### 4. Section Order Heuristics (Alternative)
+
+**Concept:** Use typical section ordering from common linkers.
+
+**Typical Order (Clang/LLVM):**
+1. `.debug_abbrev` (abbreviation tables)
+2. `.debug_info` (DIE data)
+3. `.debug_str_offsets` (string offset table)
+4. `.debug_str` (string data)
+5. `.debug_addr` (address table)
+6. `.debug_line` (line number info)
+7. `.debug_line_str` (line string table)
+
+**Implementation:**
+- Track which truncated sections have been seen
+- Assign based on expected order
+- Fall back to content identification if order is unexpected
+
+### Current Status and Next Steps
+
+**Completed:**
+- ✅ First-match priority prevents overwriting sections
+- ✅ DWARF-5 header parsing sets default base addresses
+- ✅ Bounds checking prevents crashes from invalid offsets
+- ✅ Simple bitfield test cases work with DWARF-5
+
+**Remaining Issues:**
+- ❌ Complex files (main3.cpp) still crash due to wrong section assignment
+- ❌ No guarantee that first `.debug_a` is actually `.debug_abbrev`
+- ❌ Content-based identification not yet implemented
+
+**Next Steps:**
+1. Implement content-based section identification
+2. Add debug logging to verify correct section assignment
+3. Test with various compiler/linker combinations
+4. Consider long-term solution: Use extended PE section names (/>nnnn format)
+
+### Bitfield Empty Field List Issue
+
+**Problem:**
+Structures containing bitfields have empty field lists (just the 4-byte header with no fields).
+
+**Symptoms:**
+- PDB shows structures with bitfields as having 0 members
+- `cbDwarfTypes` only increases by 4 bytes (empty field list header)
+- Bitfield types are created but not referenced
+
+**Investigation Needed:**
+1. Check if `addFieldBitfield()` is actually being called
+2. Verify `cbDwarfTypes` is being updated correctly
+3. Ensure field list terminator is written properly
+4. Check for buffer overrun or type ID mismatch
+
+**Debug Strategy:**
+1. Add logging to track field list construction
+2. Dump raw bytes of field list after completion
+3. Compare with working non-bitfield structures
+4. Use llvm-pdbutil to examine PDB structure

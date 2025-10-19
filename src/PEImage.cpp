@@ -18,6 +18,7 @@ extern "C" {
 #include <share.h>
 #include <sys/stat.h>
 #include <vector>
+#include <string.h>
 
 #ifdef UNICODE
 #define T_sopen	_wsopen
@@ -471,27 +472,420 @@ void PEImage::initSec(PESection& peSec, int secNo) const
 	peSec.secNo = secNo;
 }
 
+// Helper enum for identifying DWARF section types
+enum DwarfSectionType {
+	DWARF_UNKNOWN,
+	DWARF_ABBREV,    // .debug_abbrev
+	DWARF_ADDR,      // .debug_addr (DWARF-5)
+	DWARF_ARANGES,   // .debug_aranges
+	DWARF_INFO,      // .debug_info
+	DWARF_STR,       // .debug_str
+	DWARF_STR_OFFSETS, // .debug_str_offsets (DWARF-5)
+	DWARF_LINE,      // .debug_line
+	DWARF_LINE_STR   // .debug_line_str (DWARF-5)
+};
+
+// Identify DWARF section type by examining content
+static DwarfSectionType identifyDwarfSection(const byte* data, size_t len)
+{
+	if (len < 8) return DWARF_UNKNOWN;
+
+	uint32_t length = *(uint32_t*)data;
+	uint16_t version = *(uint16_t*)(data + 4);
+
+	// Early sanity check - length should be reasonable
+	if (length == 0 || length > len) {
+		// Try checking for string tables first before giving up
+		goto check_strings;
+	}
+
+	// Check for .debug_info (versions 2-5 are common)
+	if (version >= 2 && version <= 5 && length > 0 && length < len) {
+		if (version <= 4) {
+			// DWARF 2-4: Check if byte at offset 10 is valid addr_size
+			if (len > 10) {
+				byte addr_size = data[10];
+				if (addr_size == 4 || addr_size == 8) {
+					return DWARF_INFO;
+				}
+			}
+		} else if (version == 5) {
+			// DWARF-5: Check unit_type and addr_size
+			if (len > 7) {
+				byte unit_type = data[6];
+				byte addr_size = data[7];
+				// DW_UT_compile (0x01) is most common
+				if (unit_type <= 0x06 && (addr_size == 4 || addr_size == 8)) {
+					return DWARF_INFO;
+				}
+			}
+		}
+	}
+
+	// Check for .debug_str_offsets header (DWARF-5)
+	// Format: length(4), version(2), padding(2)
+	if (version == 5 && length > 0 && length < len) {
+		if (len > 7) {
+			uint16_t padding = *(uint16_t*)(data + 6);
+			// Padding should be 0 for .debug_str_offsets
+			if (padding == 0) {
+				// Additional check: after header should be 4 or 8-byte offsets
+				if (len > 8 + 4) {
+					// Check if content looks like offset values (not too large)
+					uint32_t first_offset = *(uint32_t*)(data + 8);
+					if (first_offset < 0x100000) { // Reasonable string offset
+						return DWARF_STR_OFFSETS;
+					}
+				}
+			}
+		}
+	}
+
+	// Check for .debug_line FIRST (before .debug_addr) - needs special handling
+	// Both .debug_line and .debug_addr have similar first 8 bytes in DWARF-5
+	// But only .debug_line has a header_length field after that
+	// DWARF-2/3/4: length(4), version(2), header_length(4), min_inst_length(1)
+	// DWARF-5 .debug_line: length(4), version(2), addr_size(1), seg_size(1), header_length(4), ...
+	// DWARF-5 .debug_addr: length(4), version(2), addr_size(1), seg_size(1), <addresses start here>
+	if (version == 5 && length > 0 && length < len && len > 12) {
+		byte addr_size = data[6];
+		byte seg_size = data[7];
+
+		if ((addr_size == 4 || addr_size == 8) && seg_size == 0) {
+			// Check if there's a header_length field at offset 8
+			// For .debug_line, this will be a reasonable value (>0 and < length-12)
+			// For .debug_addr, this will be address data (could be 0 or very large)
+			uint32_t potential_header_length = *(uint32_t*)(data + 8);
+
+			// Debug output
+			fprintf(stderr, "  DWARF-5 check: addr_size=%d, seg_size=%d, potential_header_length=%u, length=%u\n",
+				addr_size, seg_size, potential_header_length, length);
+
+			// .debug_line has header_length that points to line number program start
+			// It must be reasonable: at least 1 (for minimal header) and less than total length minus header
+			if (potential_header_length > 0 && potential_header_length < (length - 12)) {
+				// Additional validation: header should end before section end
+				// and there should be some program data after the header
+				if (12 + potential_header_length < length) {
+					fprintf(stderr, "  -> Identified as .debug_line (has valid header_length)\n");
+					return DWARF_LINE;
+				}
+			}
+			// If header_length is 0 or unreasonably large, it's probably .debug_addr
+			// where this field is actually the first address
+		}
+	}
+	else if (version >= 2 && version <= 4 && length > 0 && length < len) {
+		// DWARF 2-4 .debug_line format
+		if (len > 10) {
+			uint32_t header_length = *(uint32_t*)(data + 6);
+			byte min_inst = data[10];
+			// min_inst_length is typically 1
+			if (header_length < length && min_inst == 1) {
+				return DWARF_LINE;
+			}
+		}
+	}
+
+	// Check for .debug_addr header (DWARF-5) - AFTER .debug_line
+	// Format: length(4), version(2), addr_size(1), seg_size(1), <addresses>
+	if (version == 5 && length > 0 && length < len) {
+		if (len > 11) {  // Need at least 12 bytes to check
+			uint8_t addr_size = data[6];
+			uint8_t seg_size = data[7];
+			// addr_size must be 4 or 8, seg_size is typically 0
+			if ((addr_size == 4 || addr_size == 8) && seg_size == 0) {
+				// For .debug_addr, addresses start immediately at offset 8
+				// Check if the data at offset 8 looks like addresses rather than header_length
+				uint32_t first_value = *(uint32_t*)(data + 8);
+
+				// If this was .debug_line, first_value would be header_length which should be
+				// reasonable (>0 and < length-12). For .debug_addr, it's an address.
+				// Addresses are often 0 (null), or in code/data segments (high values)
+				bool looks_like_header = (first_value > 0 && first_value < (length - 12));
+
+				if (!looks_like_header) {
+					// Either 0 or a large value - more likely to be an address
+					fprintf(stderr, "  -> Identified as .debug_addr (first value %u doesn't look like header_length)\n", first_value);
+					return DWARF_ADDR;
+				}
+				// If it looks like a header_length, don't identify as .debug_addr
+				// Let it fall through to string table checks or unknown
+			}
+		}
+	}
+
+	// Check for .debug_abbrev (starts with abbreviation entries)
+	// Format: code (LEB128), tag (LEB128), has_children (byte)
+	// The first .debug_a is typically abbreviation table
+	const byte* p = data;
+	const byte* end = data + (len < 100 ? len : 100); // Check first 100 bytes
+
+	// Special check for first few bytes matching typical abbrev pattern
+	if (len > 3 && data[0] == 0x01 && data[1] == 0x11 && data[2] <= 0x01) {
+		// This is very likely an abbreviation table
+		// 0x01 = first abbrev code
+		// 0x11 = DW_TAG_compile_unit
+		// 0x00 or 0x01 = has_children
+		return DWARF_ABBREV;
+	}
+
+	// Try to read first abbreviation code
+	unsigned code = 0;
+	const byte* p_save = p;
+	// Simple LEB128 decoder
+	for (int shift = 0; shift < 32 && p < end; shift += 7) {
+		byte b = *p++;
+		code |= (b & 0x7f) << shift;
+		if ((b & 0x80) == 0) break;
+		if (shift >= 21) { p = p_save; break; } // Too large for abbrev code
+	}
+
+	if (code > 0 && code < 100 && p < end) {  // Abbrev codes are typically < 100
+		// Try to read tag
+		unsigned tag = 0;
+		for (int shift = 0; shift < 32 && p < end; shift += 7) {
+			byte b = *p++;
+			tag |= (b & 0x7f) << shift;
+			if ((b & 0x80) == 0) break;
+		}
+		// Check if tag is in valid DWARF tag range (0x01-0x4e for DWARF-5)
+		if (tag >= 0x01 && tag <= 0x4e && p < end) {
+			// Check has_children byte (must be 0 or 1)
+			byte has_child = *p;
+			if (has_child <= 1) {
+				return DWARF_ABBREV;
+			}
+		}
+	}
+
+	// Check for .debug_aranges
+	// Format: length(4), version(2), cu_offset(4), addr_size(1), seg_size(1)
+	if (len >= 12) {
+		uint32_t ar_length = *(uint32_t*)data;
+		uint16_t ar_version = *(uint16_t*)(data + 4);
+		// Version 2 is standard for .debug_aranges
+		if (ar_version == 2 && ar_length > 0 && ar_length < len) {
+			byte ar_addr_size = data[10];
+			byte ar_seg_size = data[11];
+			if ((ar_addr_size == 4 || ar_addr_size == 8) && ar_seg_size == 0) {
+				return DWARF_ARANGES;
+			}
+		}
+	}
+
+check_strings:
+	// Check for .debug_str (string table - contains null-terminated strings)
+	// Simple heuristic: Check if it contains printable strings
+	if (len > 16) {
+		bool looks_like_strings = true;
+		int null_count = 0;
+		int printable_count = 0;
+
+		for (size_t i = 0; i < (len < 200 ? len : 200); i++) {
+			byte c = data[i];
+			if (c == 0) {
+				null_count++;
+			} else if ((c >= 32 && c < 127) || c == '\t' || c == '\n' || c == '\r') {
+				printable_count++;
+			} else if (c < 32 || c >= 127) {
+				// Non-printable, non-null character
+				looks_like_strings = false;
+				break;
+			}
+		}
+
+		// String table should have multiple null-terminated strings
+		if (looks_like_strings && null_count > 2 && printable_count > 10) {
+			// Additional check: .debug_str often starts with compiler version string
+			const char* str = (const char*)data;
+			if (strstr(str, "clang") || strstr(str, "GCC") || strstr(str, "GNU")) {
+				return DWARF_STR;
+			}
+			// Even without compiler string, if it looks like strings, accept it
+			if (null_count > 5) {
+				return DWARF_STR;
+			}
+		}
+	}
+
+	// Check for .debug_line_str (DWARF-5 line string table)
+	// Similar to .debug_str but used specifically for line info
+	// Usually contains file paths
+	if (len > 16) {
+		bool has_paths = false;
+		const char* str = (const char*)data;
+		size_t checked = 0;
+
+		while (checked < len && checked < 500) {
+			size_t slen = strnlen(str + checked, len - checked);
+			if (slen > 0 && slen < len - checked) {
+				// Check for path separators
+				if (strchr(str + checked, '/') || strchr(str + checked, '\\')) {
+					has_paths = true;
+					break;
+				}
+				// Check for file extensions
+				if (strstr(str + checked, ".c") || strstr(str + checked, ".cpp") ||
+				    strstr(str + checked, ".h") || strstr(str + checked, ".cc")) {
+					has_paths = true;
+					break;
+				}
+			}
+			checked += slen + 1;
+			if (slen == 0) break;
+		}
+
+		if (has_paths) {
+			return DWARF_LINE_STR;
+		}
+	}
+
+	return DWARF_UNKNOWN;
+}
+
 // Initialize all the DWARF sections present in this PE or COFF file.
 // Common to both object and image modules.
 void PEImage::initDWARFSegments()
 {
+	// For handling truncated section names that need content identification
+	struct AmbiguousSection {
+		int secNo;
+		const char* truncatedName;
+	};
+	std::vector<AmbiguousSection> ambiguousSections;
+
 	// Scan all the PE sections in this image.
 	for(int s = 0; s < nsec; s++)
 	{
 		const char* name = (const char*) sec[s].Name;
+		char name_buf[9] = {0}; // PE section names are max 8 chars
+		memcpy(name_buf, name, 8);
+
 		if(name[0] == '/')
 		{
 			int off = strtol(name + 1, 0, 10);
 			name = strtable + off;
 		}
+		else
+		{
+			// Section name is directly in the header (max 8 chars)
+			name = name_buf;
+		}
 
-		// Is 'name' one of the DWARF sections?
+		// Check for exact matches first
+		bool matched = false;
 		for (const SectionDescriptor *sec_desc : sec_descriptors) {
 			if (!strcmp(name, sec_desc->name)) {
 				PESection& peSec = this->*(sec_desc->pSec);
 				initSec(peSec, s);
+				matched = true;
+				break;
 			}
 		}
+
+		// If no exact match and name is truncated (8 chars), save for later
+		if (!matched && strlen(name) == 8) {
+			// Check if it could be a truncated DWARF section
+			bool isDwarfCandidate = false;
+			for (const SectionDescriptor *sec_desc : sec_descriptors) {
+				if (!strncmp(name, sec_desc->name, 8)) {
+					isDwarfCandidate = true;
+					break;
+				}
+			}
+			if (isDwarfCandidate) {
+				// Make a copy of the name since 'name' may point to temporary buffer
+				char* nameCopy = new char[9];
+				strncpy(nameCopy, name, 8);
+				nameCopy[8] = 0;
+				ambiguousSections.push_back({s, nameCopy});
+			}
+		}
+	}
+
+	// Now handle ambiguous sections using content identification
+	for (const auto& ambig : ambiguousSections) {
+		// Get section data
+		DWORD size = sizeInImage(sec[ambig.secNo]);
+		const byte* data = DPV<byte>(sec[ambig.secNo].PointerToRawData, size);
+		if (!data) continue;
+
+		// Identify section type by content
+		DwarfSectionType sectionType = identifyDwarfSection(data, size);
+
+		// Debug: Show section identification (temporary)
+		if (1) {  // Enable for debugging
+			const char* sectionTypeStr = "UNKNOWN";
+			switch(sectionType) {
+				case DWARF_ABBREV: sectionTypeStr = "ABBREV"; break;
+				case DWARF_ADDR: sectionTypeStr = "ADDR"; break;
+				case DWARF_INFO: sectionTypeStr = "INFO"; break;
+				case DWARF_STR: sectionTypeStr = "STR"; break;
+				case DWARF_STR_OFFSETS: sectionTypeStr = "STR_OFFSETS"; break;
+				case DWARF_LINE: sectionTypeStr = "LINE"; break;
+				case DWARF_LINE_STR: sectionTypeStr = "LINE_STR"; break;
+				case DWARF_ARANGES: sectionTypeStr = "ARANGES"; break;
+			}
+			fprintf(stderr, "Section %s (index %d) identified as: %s\n", ambig.truncatedName, ambig.secNo, sectionTypeStr);
+		}
+
+		// Assign to appropriate DWARF section based on identification
+		if (sectionType == DWARF_ABBREV) {
+			if (!debug_abbrev.isPresent()) {
+				initSec(debug_abbrev, ambig.secNo);
+			}
+		}
+		else if (sectionType == DWARF_ADDR) {
+			if (!debug_addr.isPresent()) {
+				initSec(debug_addr, ambig.secNo);
+			}
+		}
+		else if (sectionType == DWARF_INFO) {
+			if (!debug_info.isPresent()) {
+				initSec(debug_info, ambig.secNo);
+			}
+		}
+		else if (sectionType == DWARF_STR) {
+			if (!debug_str.isPresent()) {
+				initSec(debug_str, ambig.secNo);
+			}
+		}
+		else if (sectionType == DWARF_STR_OFFSETS) {
+			if (!debug_str_offsets.isPresent()) {
+				initSec(debug_str_offsets, ambig.secNo);
+			}
+		}
+		else if (sectionType == DWARF_LINE) {
+			if (!debug_line.isPresent()) {
+				initSec(debug_line, ambig.secNo);
+			}
+		}
+		else if (sectionType == DWARF_LINE_STR) {
+			if (!debug_line_str.isPresent()) {
+				initSec(debug_line_str, ambig.secNo);
+			}
+		}
+		else if (sectionType == DWARF_ARANGES) {
+			// .debug_aranges is not in our section list, but we can skip it
+		}
+		else {
+			// Unknown or unhandled - use first-match priority as fallback
+			for (const SectionDescriptor *sec_desc : sec_descriptors) {
+				if (!strncmp(ambig.truncatedName, sec_desc->name, 8)) {
+					PESection& peSec = this->*(sec_desc->pSec);
+					if (!peSec.isPresent()) {
+						initSec(peSec, ambig.secNo);
+						break;
+					}
+				}
+			}
+		}
+	}
+
+	// Clean up allocated names
+	for (const auto& ambig : ambiguousSections) {
+		delete[] ambig.truncatedName;
 	}
 }
 

@@ -1047,16 +1047,26 @@ int CV2PDB::addDWARFFields(DWARF_InfoData& structid, DIECursor& cursor, int base
 	int cumulative_bit_offset = 0;
 
 	// cursor points to the first member of the class/struct/union.
+	if (debug & DbgPdbTypes)
+		fprintf(stderr, "addDWARFFields: Starting to read fields for struct at cursor=%p\n", cursor.ptr);
+
 	DWARF_InfoData id;
+	int iteration = 0;
 	while (cursor.readNext(&id, true /* stopAtNull */))
 	{
+		iteration++;
+		if (debug & DbgPdbTypes)
+			fprintf(stderr, "addDWARFFields: iteration %d - Read tag=%d, name=%s, bit_size=%d\n",
+				iteration, id.tag, id.name ? id.name : "(null)", id.bit_size);
+
 		if (cbDwarfTypes - flStart > 0x10000 - kMaxNameLen - 100)
 			break; // no more space in field list, TODO: add continuation record, see addDWARFEnum
 
 		int cvid = -1;
 		if (id.tag == DW_TAG_member)
 		{
-			//printf("    Adding field %s\n", id.name);
+			if (debug & DbgPdbTypes)
+				fprintf(stderr, "addDWARFFields:   DW_TAG_member %s, bit_size=%d\n", id.name, id.bit_size);
 			int off = 0;
 			if (!isunion)
 			{
@@ -1202,13 +1212,16 @@ int CV2PDB::addDWARFFields(DWARF_InfoData& structid, DIECursor& cursor, int base
 		}
 		cursor.gotoSibling();
 	}
+	if (debug & DbgPdbTypes)
+		fprintf(stderr, "addDWARFFields: Finished reading fields, returning %d fields\n", nfields);
 	return nfields;
 }
 
 // Add a class/struct/union to the database.
 int CV2PDB::addDWARFStructure(DWARF_InfoData& structid, DIECursor cursor)
 {
-	//printf("Adding struct %s, entryoff %d, abbrev %d\n", structid.name, structid.entryOff, structid.abbrev);
+	if (debug & DbgPdbTypes)
+		fprintf(stderr, "addDWARFStructure: Adding struct %s, entryoff %d, abbrev %d\n", structid.name, structid.entryOff, structid.abbrev);
 
 	int fieldlistType = 0;
 	int nfields = 0;
@@ -1235,6 +1248,9 @@ int CV2PDB::addDWARFStructure(DWARF_InfoData& structid, DIECursor cursor)
 		}
 #endif
 		nfields += addDWARFFields(structid, cursor, 0, flbegin, hasBackRef);
+		if (debug & DbgPdbTypes)
+			fprintf(stderr, "addDWARFStructure: %s returned %d fields, flbegin=%d, cbDwarfTypes=%d\n",
+				structid.name, nfields, flbegin, cbDwarfTypes);
 		fl = (codeview_reftype*) (dwarfTypes + flbegin);
 		fl->fieldlist.len = cbDwarfTypes - flbegin - 2;
 		fieldlistType = nextDwarfType++;

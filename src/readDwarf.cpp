@@ -61,6 +61,13 @@ byte* DWARF_CompilationUnitInfo::read(DebugLevel debug, const PEImage& img, unsi
 	*off = img.debug_info.sectOff(end_ptr);
 	version = RD2(ptr);
 	unit_type = DW_UT_compile;
+
+	// Initialize base addresses to NULL - will be set later if needed
+	addr_base = nullptr;
+	str_offset_base = nullptr;
+	loclist_base = nullptr;
+	rnglist_base = nullptr;
+
 	if (version <= 4) {
 		debug_abbrev_offset = RD4(ptr);
 		address_size = *ptr++;
@@ -68,6 +75,35 @@ byte* DWARF_CompilationUnitInfo::read(DebugLevel debug, const PEImage& img, unsi
 		unit_type = *ptr++;
 		address_size = *ptr++;
 		debug_abbrev_offset = RD4(ptr);
+
+		// In DWARF-5, set default bases if the sections exist
+		// These can be overridden by DW_AT_str_offsets_base and DW_AT_addr_base attributes
+		// Note: Default is to use the beginning of the contribution after the header
+		if (img.debug_str_offsets.isPresent() && img.debug_str_offsets.length > 0) {
+			// Parse the header to find the actual start of data
+			byte* p = img.debug_str_offsets.startByte();
+			uint32_t length = RD4(p);
+			uint16_t version = RD2(p);
+			uint16_t padding = RD2(p); // Should be 0
+			// After header, the actual offsets start
+			str_offset_base = p;
+			if (debug & DbgDwarfCompilationUnit)
+				fprintf(stderr, "%s:%d: Set default str_offset_base for DWARF-5 at offset %x\n", __FUNCTION__, __LINE__,
+					img.debug_str_offsets.sectOff(p));
+		}
+		if (img.debug_addr.isPresent() && img.debug_addr.length > 0) {
+			// Parse the header to find the actual start of data
+			byte* p = img.debug_addr.startByte();
+			uint32_t length = RD4(p);
+			uint16_t version = RD2(p);
+			uint8_t addr_size = *p++;
+			uint8_t seg_size = *p++;
+			// After header, the actual addresses start
+			addr_base = p;
+			if (debug & DbgDwarfCompilationUnit)
+				fprintf(stderr, "%s:%d: Set default addr_base for DWARF-5 at offset %x\n", __FUNCTION__, __LINE__,
+					img.debug_addr.sectOff(p));
+		}
 	} else {
 		fprintf(stderr, "%s:%d: WARNING: Unsupported dwarf version %d for compilation unit at offset=%x\n", __FUNCTION__, __LINE__,
 				version, cu_offset);
@@ -646,7 +682,15 @@ const char* DIECursor::resolveIndirectString(uint32_t index) const
 	}
 
 	byte* refAddr = cu->str_offset_base + index * refSize();
-	return (const char*)img->debug_str.byteAt(RDref(refAddr));
+	unsigned long long offset = RDref(refAddr);
+
+	if (!img->debug_str.isPresent() || offset >= img->debug_str.length) {
+		fprintf(stderr, "ERROR: %s:%d: invalid string offset %llx for cu_offs=%x die_offs=%x\n", __FUNCTION__, __LINE__,
+				offset, cu->cu_offset, entryOff);
+		return Cv2PdbInvalidString;
+	}
+
+	return (const char*)img->debug_str.byteAt(offset);
 }
 
 uint32_t DIECursor::readIndirectAddr(uint32_t index) const
@@ -659,7 +703,16 @@ uint32_t DIECursor::readIndirectAddr(uint32_t index) const
 		return 0;
 	}
 
-	byte* refAddr = cu->addr_base + index * refSize();
+	// Check bounds
+	unsigned offset_in_section = index * cu->address_size;
+	if (!img->debug_addr.isPresent() ||
+	    (cu->addr_base - img->debug_addr.startByte() + offset_in_section + cu->address_size) > img->debug_addr.length) {
+		fprintf(stderr, "ERROR: %s:%d: invalid addr offset for index=%u cu_offs=%x die_offs=%x\n", __FUNCTION__, __LINE__,
+				index, cu->cu_offset, entryOff);
+		return 0;
+	}
+
+	byte* refAddr = cu->addr_base + offset_in_section;
 	return RDAddr(refAddr);
 }
 

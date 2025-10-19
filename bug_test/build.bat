@@ -1,44 +1,62 @@
 @echo off
-echo ===================================
-echo Building main.cpp with Clang
-echo ===================================
+setlocal
 
-if not exist build mkdir build
+echo =====================================
+echo Building with Clang 32-bit
+echo =====================================
+echo.
+
+REM Clean previous builds
+if exist build (
+    echo Cleaning previous build...
+    rmdir /s /q build
+)
+
+REM Create build directory
+mkdir build
 cd build
 
-echo.
-echo [1/3] Configuring CMake...
+REM Configure with Clang 32-bit
+echo Configuring with CMake (Clang 32-bit, Ninja)...
 cmake -G "Ninja" ^
-  -DCMAKE_C_COMPILER="C:/dev/install/clang+llvm-18.1.8-x86_64-pc-windows-msvc/bin/clang.exe" ^
-  -DCMAKE_CXX_COMPILER="C:/dev/install/clang+llvm-18.1.8-x86_64-pc-windows-msvc/bin/clang++.exe" ^
-  -DCMAKE_BUILD_TYPE=Debug ^
-  ..
+      -DCMAKE_C_COMPILER=clang ^
+      -DCMAKE_CXX_COMPILER=clang++ ^
+      -DCMAKE_BUILD_TYPE=Debug ^
+      ..
 
-if %errorlevel% neq 0 (
-    echo CMake configuration failed!
-    exit /b %errorlevel%
+if %ERRORLEVEL% NEQ 0 (
+    echo.
+    echo ERROR: CMake configuration failed!
+    echo Make sure Clang is installed and in your PATH.
+    cd ..
+    pause
+    exit /b 1
 )
 
 echo.
-echo [2/3] Building with Ninja...
-ninja
+echo Building...
+cmake --build .
 
-if %errorlevel% neq 0 (
-    echo Build failed!
-    exit /b %errorlevel%
+if %ERRORLEVEL% NEQ 0 (
+    echo.
+    echo ERROR: Build failed!
+    cd ..
+    pause
+    exit /b 1
 )
 
 echo.
-echo [3/3] Verifying outputs...
+echo =====================================
+echo Build completed successfully!
+echo =====================================
 echo.
-dir main.exe main.pdb
+echo Executables with PDB files:
+dir /b *.exe *.pdb 2>nul
 echo.
-echo ===================================
-echo SUCCESS! Files generated:
-echo   - main.exe    (Updated with PDB debug info)
-echo   - main.pdb    (PDB file for Visual Studio debugging)
+echo You can now debug these in Visual Studio:
+echo   1. Open Visual Studio
+echo   2. File -^> Open -^> File... and select an .exe
+echo   3. Press F5 to start debugging
 echo.
-echo To debug in Visual Studio:
-echo   1. Open main_debug.sln
-echo   2. Press F5 to start debugging
-echo ===================================
+cd ..
+pause
