@@ -16,13 +16,27 @@ REM Create build directory
 mkdir build
 cd build
 
-REM Configure with Clang 32-bit
-echo Configuring with CMake (Clang 32-bit, Ninja)...
-cmake -G "Ninja" ^
-      -DCMAKE_C_COMPILER=clang ^
-      -DCMAKE_CXX_COMPILER=clang++ ^
+REM Try different generators based on what's available
+echo Configuring with CMake (Clang 32-bit)...
+
+REM First try Unix Makefiles (works with MSYS2)
+cmake -G "Unix Makefiles" ^
       -DCMAKE_BUILD_TYPE=Debug ^
-      ..
+      .. 2>nul
+
+if %ERRORLEVEL% NEQ 0 (
+    echo Unix Makefiles failed, trying Ninja...
+    cmake -G "Ninja" ^
+          -DCMAKE_BUILD_TYPE=Debug ^
+          .. 2>nul
+)
+
+if %ERRORLEVEL% NEQ 0 (
+    echo Ninja failed, trying NMake...
+    cmake -G "NMake Makefiles" ^
+          -DCMAKE_BUILD_TYPE=Debug ^
+          ..
+)
 
 if %ERRORLEVEL% NEQ 0 (
     echo.

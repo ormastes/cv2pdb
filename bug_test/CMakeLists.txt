@@ -1,5 +1,51 @@
 cmake_minimum_required(VERSION 3.15)
-project(main_test)
+
+# IMPORTANT: Force Clang compiler BEFORE project() to prevent cl.exe detection
+# If not set via command line, find and set Clang
+if(NOT DEFINED CMAKE_C_COMPILER)
+    find_program(CLANG_C_COMPILER
+        NAMES clang clang.exe
+        PATHS
+            C:/dev/install/clang+llvm-18.1.8-x86_64-pc-windows-msvc/bin
+            C:/dev/tool/msys2/mingw64/bin
+            C:/dev/tool/msys2/mingw32/bin
+            C:/msys64/mingw64/bin
+            C:/msys64/mingw32/bin
+            C:/mingw64/bin
+            C:/mingw32/bin
+        PATH_SUFFIXES bin
+    )
+    if(CLANG_C_COMPILER)
+        set(CMAKE_C_COMPILER ${CLANG_C_COMPILER} CACHE FILEPATH "C compiler" FORCE)
+        message(STATUS "Found Clang C compiler: ${CLANG_C_COMPILER}")
+    else()
+        message(FATAL_ERROR "Clang C compiler not found! Please install Clang or specify -DCMAKE_C_COMPILER=clang")
+    endif()
+endif()
+
+if(NOT DEFINED CMAKE_CXX_COMPILER)
+    find_program(CLANG_CXX_COMPILER
+        NAMES clang++ clang++.exe
+        PATHS
+            C:/dev/install/clang+llvm-18.1.8-x86_64-pc-windows-msvc/bin
+            C:/dev/tool/msys2/mingw64/bin
+            C:/dev/tool/msys2/mingw32/bin
+            C:/msys64/mingw64/bin
+            C:/msys64/mingw32/bin
+            C:/mingw64/bin
+            C:/mingw32/bin
+        PATH_SUFFIXES bin
+    )
+    if(CLANG_CXX_COMPILER)
+        set(CMAKE_CXX_COMPILER ${CLANG_CXX_COMPILER} CACHE FILEPATH "C++ compiler" FORCE)
+        message(STATUS "Found Clang C++ compiler: ${CLANG_CXX_COMPILER}")
+    else()
+        message(FATAL_ERROR "Clang C++ compiler not found! Please install Clang or specify -DCMAKE_CXX_COMPILER=clang++")
+    endif()
+endif()
+
+# Now call project() after compilers are set
+project(main_test C CXX)
 
 # Set C++ standard
 set(CMAKE_CXX_STANDARD 11)
@@ -9,20 +55,39 @@ message(STATUS "C Compiler: ${CMAKE_C_COMPILER}")
 message(STATUS "C++ Compiler: ${CMAKE_CXX_COMPILER}")
 message(STATUS "Compiler ID: ${CMAKE_CXX_COMPILER_ID}")
 
-# Verify we're using Clang
+# Verify we're using Clang (double-check after project())
 if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    message(WARNING "")
-    message(WARNING "!!! Not using Clang compiler! Detected: ${CMAKE_CXX_COMPILER_ID}")
-    message(WARNING "!!! Please specify Clang explicitly:")
-    message(WARNING "!!!   cmake -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ ..")
-    message(WARNING "")
+    message(FATAL_ERROR "\n"
+        "=====================================\n"
+        "ERROR: Not using Clang compiler!\n"
+        "=====================================\n"
+        "Detected: ${CMAKE_CXX_COMPILER_ID}\n"
+        "This project REQUIRES Clang for 32-bit DWARF generation.\n"
+        "\n"
+        "Please specify Clang explicitly:\n"
+        "  cmake -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ ..\n"
+        "\n"
+        "Or ensure Clang is in your PATH before cl.exe\n"
+        "=====================================\n"
+    )
 endif()
 
 # FORCE 32-bit compilation for all builds
 message(STATUS "Configuring for 32-bit build")
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -m32 -target i686-pc-windows-gnu")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -m32 -target i686-pc-windows-gnu")
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -m32")
+
+# Check if we're using MSVC-compatible Clang or MinGW Clang
+if(WIN32 AND NOT MINGW)
+    # MSVC-compatible Clang
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -m32")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -m32")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -m32")
+else()
+    # MinGW/MSYS Clang - needs target specification
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -m32 -target i686-pc-windows-gnu")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -m32 -target i686-pc-windows-gnu")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -m32")
+endif()
+
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -m32")
 
 # Use DWARF debug info (DWARF-5 for Clang 14+)
@@ -134,7 +199,8 @@ set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT m
 message(STATUS "")
 message(STATUS "=====================================")
 message(STATUS "Configuration Summary:")
-message(STATUS "  Compiler: Clang 32-bit")
+message(STATUS "  Compiler: ${CMAKE_CXX_COMPILER_ID} (${CMAKE_CXX_COMPILER})")
+message(STATUS "  Architecture: 32-bit (forced)")
 message(STATUS "  Debug Format: DWARF-5")
 message(STATUS "  cv2pdb: ${CV2PDB_EXE}")
 message(STATUS "  Build Type: ${CMAKE_BUILD_TYPE}")
