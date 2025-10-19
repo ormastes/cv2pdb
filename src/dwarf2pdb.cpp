@@ -1244,13 +1244,19 @@ int CV2PDB::addDWARFStructure(DWARF_InfoData& structid, DIECursor cursor)
 	formatFullyQualifiedName(&structid, namebuf, sizeof namebuf);
 
 	int udttype = nextUserType;
+	bool isUnion = (structid.tag == DW_TAG_union_type);
+
 	if (hasBackRef && fieldlistType)
 	{
 		// with back references, make the original struct incomplete and
 		// put the full definition into the DWARF chunk
 		checkDWARFTypeAlloc(kMaxNameLen + 100);
 		codeview_type* dwarf = (codeview_type*)(dwarfTypes + cbDwarfTypes);
-		int len = addAggregate(dwarf, structid.tag == DW_TAG_class_type, nfields, fieldlistType, 0, 0, 0, structid.byte_size, namebuf, nullptr);
+		int len;
+		if (isUnion)
+			len = addUnion(dwarf, nfields, fieldlistType, 0, structid.byte_size, namebuf);
+		else
+			len = addAggregate(dwarf, structid.tag == DW_TAG_class_type, nfields, fieldlistType, 0, 0, 0, structid.byte_size, namebuf, nullptr);
 		cbDwarfTypes += len;
 		udttype = nextDwarfType++;
 		fieldlistType = 0;
@@ -1259,7 +1265,11 @@ int CV2PDB::addDWARFStructure(DWARF_InfoData& structid, DIECursor cursor)
 	checkUserTypeAlloc(kMaxNameLen + 100);
 	codeview_type* cvt = (codeview_type*)(userTypes + cbUserTypes);
 	int attr = fieldlistType ? 0 : kPropIncomplete;
-	int len = addAggregate(cvt, structid.tag == DW_TAG_class_type, nfields, fieldlistType, attr, 0, 0, structid.byte_size, namebuf, nullptr);
+	int len;
+	if (isUnion)
+		len = addUnion(cvt, nfields, fieldlistType, attr, structid.byte_size, namebuf);
+	else
+		len = addAggregate(cvt, structid.tag == DW_TAG_class_type, nfields, fieldlistType, attr, 0, 0, structid.byte_size, namebuf, nullptr);
 	cbUserTypes += len;
 	int cvtype = nextUserType++;
 

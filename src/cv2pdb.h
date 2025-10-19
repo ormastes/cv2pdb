@@ -62,6 +62,8 @@ public:
 	                                   int derived, int vshape, int structlen, const char*name, const char*uniquename = 0);
 	int addStruct(codeview_type* dtype, int n_element, int fieldlist, int property,
 	                                    int derived, int vshape, int structlen, const char*name, const char*uniquename = 0);
+	int addUnion(codeview_type* dtype, int n_element, int fieldlist, int property,
+	                                   int unionlen, const char*name);
 	int addEnum(codeview_type* dtype, int count, int fieldlist, int property,
 	                                  int type, const char*name);
 

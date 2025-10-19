@@ -757,6 +757,27 @@ int CV2PDB::addAggregate(codeview_type* dtype, bool clss, int n_element, int fie
 	return len;
 }
 
+int CV2PDB::addUnion(codeview_type* dtype, int n_element, int fieldlist, int property,
+                     int unionlen, const char* name)
+{
+	if (debug & DbgPdbTypes)
+		fprintf(stderr, "%s:%d: adding union %s -> fieldlist:%d\n", __FUNCTION__, __LINE__, name, fieldlist);
+
+	dtype->union_v2.id = v3 ? LF_UNION_V3 : LF_UNION_V2;
+	dtype->union_v2.count = n_element;
+	dtype->union_v2.fieldlist = fieldlist;
+	dtype->union_v2.property = property;
+	int len = write_numeric_leaf(unionlen, &(dtype->union_v2.un_len)) - 2;
+	len += cstrcpy_v(v3, (BYTE*)(&dtype->union_v2 + 1) + len, name);
+	len += sizeof (dtype->union_v2);
+
+	unsigned char* p = (unsigned char*) dtype;
+	for (; len & 3; len++)
+		p[len] = 0xf4 - (len & 3);
+	dtype->union_v2.len = len - 2;
+	return len;
+}
+
 int CV2PDB::addClass(codeview_type* dtype, int n_element, int fieldlist, int property,
                      int derived, int vshape, int structlen, const char* name, const char* uniquename)
 {
